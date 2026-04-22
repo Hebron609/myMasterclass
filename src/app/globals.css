@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-heading;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply text-gray-900 placeholder:text-gray-400;
+  }
+}
+
+@layer utilities {
+  .font-dm-sans {
+    font-family: "DM Sans", sans-serif;
+  }
+
+  .font-rubik {
+    font-family: "Rubik", sans-serif;
+  }
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
