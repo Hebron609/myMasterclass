@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Search, Bell, UserCircle } from "lucide-react";
+import { Search, Bell, UserCircle, ChevronDown } from "lucide-react";
 import { UserRole } from "@/lib/auth";
 import { ProgramsModal } from "@/components/dashboard/ProgramsModal";
 
@@ -50,12 +50,12 @@ export function RoleAwareHeader({
           {userRole !== "ADMIN" && (
             <button
               onClick={() => setIsProgramsOpen(true)}
-              className="flex items-center gap-2 mr-4 border-b-[1.5px] border-[#333333] pb-1.5 px-1 translate-y-[2px] cursor-pointer hover:border-[#555] transition-colors"
+              className="flex items-center gap-2 mr-4 border-b-2 border-black pb-1.5 px-0.5 cursor-pointer hover:border-gray-700 transition-colors"
             >
-              <span className="text-[15px] font-regular text-gray-900 font-sans">Programs</span>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#E59124] text-[12px] font-medium text-white tracking-tight">
-                10
+              <span className="text-[14px] font-regular text-[#010000] font-sans leading-none">
+                Programs
               </span>
+              <ChevronDown className="h-[16px] w-[16px] text-[#475569] stroke-[2.5]" />
             </button>
           )}
 

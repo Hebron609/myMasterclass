@@ -9,6 +9,7 @@ export default function SelectProgramPage() {
   const router = useRouter();
   const { user, setActiveProgram } = useAuthStore();
   const [mounted, setMounted] = useState(false);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -27,9 +28,12 @@ export default function SelectProgramPage() {
       : availablePrograms;
 
   const handleProgramSelection = (program: Program) => {
+    setSelectedProgramId(program.id);
     setActiveProgram(program);
     const dashboardRoute = getRoleDashboardRoute(user.role);
-    router.push(dashboardRoute);
+    setTimeout(() => {
+      router.push(dashboardRoute);
+    }, 1000);
   };
 
   return (
@@ -59,8 +63,21 @@ export default function SelectProgramPage() {
             <button
               key={program.id}
               onClick={() => handleProgramSelection(program)}
-              className="flex flex-col text-left rounded-[16px] border border-gray-100 bg-white overflow-hidden hover:shadow-md transition-shadow group focus:outline-none focus:ring-2 focus:ring-[#003F3A]/30"
+              disabled={selectedProgramId !== null}
+              className="flex flex-col text-left rounded-[16px] border border-gray-100 bg-white overflow-hidden hover:shadow-md transition-all duration-300 group focus:outline-none focus:ring-2 focus:ring-[#003F3A]/30 relative disabled:opacity-80"
             >
+              {/* Loading Overlay */}
+              {selectedProgramId === program.id && (
+                <div className="absolute inset-0 bg-[#003F3A]/10 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 transition-all">
+                  <div className="bg-white p-3 rounded-full shadow-lg flex items-center justify-center animate-bounce">
+                    <svg className="animate-spin h-8 w-8 text-[#003F3A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </div>
+                </div>
+              )}
+
               {/* Image Placeholder Context (Checkerboard Pattern via CSS) */}
               <div 
                 className="w-full h-[180px] bg-[#F3F4F6] relative"

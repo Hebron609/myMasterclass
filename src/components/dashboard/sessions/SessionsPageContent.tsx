@@ -103,6 +103,8 @@ export default function SessionsPageContent({
 }: SessionsPageContentProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [isLogging, setIsLogging] = useState(false);
+  const [actioningSessionId, setActioningSessionId] = useState<{ id: string; action: "accept" | "decline" } | null>(null);
   const [formData, setFormData] = useState({
     date: "",
     time: "",
@@ -128,6 +130,22 @@ export default function SessionsPageContent({
   const handleSaveSession = () => {
     console.log("Session saved:", formData);
     setIsModalOpen(false);
+  };
+
+  const handleSaveSessionClick = () => {
+    setIsLogging(true);
+    setTimeout(() => {
+      setIsLogging(false);
+      handleSaveSession();
+    }, 1200);
+  };
+
+  const handleSessionAction = (sessionId: string, action: "accept" | "decline") => {
+    setActioningSessionId({ id: sessionId, action });
+    setTimeout(() => {
+      setActioningSessionId(null);
+      console.log(`Session ${sessionId} has been ${action}ed`);
+    }, 1200);
   };
 
   return (
@@ -250,11 +268,39 @@ export default function SessionsPageContent({
                     {/* Mentor Action Buttons for Pending Sessions */}
                     {role === "MENTOR" && session.status === "Pending" && (
                       <div className="mt-3 flex gap-2">
-                        <button className="flex-1 px-4 py-1.5 text-[12px] font-medium border border-[#D5DCEB] text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-rubik bg-white">
-                          Accept
+                        <button
+                          onClick={() => handleSessionAction(session.id, "accept")}
+                          disabled={actioningSessionId !== null}
+                          className="flex-1 px-4 py-1.5 text-[12px] font-medium border border-[#D5DCEB] text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-rubik bg-white flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {actioningSessionId?.id === session.id && actioningSessionId?.action === "accept" ? (
+                            <>
+                              <svg className="animate-spin h-3.5 w-3.5 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <span>Accepting...</span>
+                            </>
+                          ) : (
+                            "Accept"
+                          )}
                         </button>
-                        <button className="flex-1 px-4 py-1.5 text-[12px] font-medium bg-[#333333] text-white rounded-lg hover:bg-[#222222] transition-colors font-rubik">
-                          Decline
+                        <button
+                          onClick={() => handleSessionAction(session.id, "decline")}
+                          disabled={actioningSessionId !== null}
+                          className="flex-1 px-4 py-1.5 text-[12px] font-medium bg-[#333333] text-white rounded-lg hover:bg-[#222222] transition-colors font-rubik flex items-center justify-center gap-1.5 disabled:bg-gray-700 disabled:cursor-not-allowed"
+                        >
+                          {actioningSessionId?.id === session.id && actioningSessionId?.action === "decline" ? (
+                            <>
+                              <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <span>Declining...</span>
+                            </>
+                          ) : (
+                            "Decline"
+                          )}
                         </button>
                       </div>
                     )}
@@ -419,15 +465,27 @@ export default function SessionsPageContent({
                   <div className="pt-2 flex justify-end gap-3">
                     <button
                       onClick={() => setIsModalOpen(false)}
-                      className="px-6 py-2.5 text-[14px] font-medium font-rubik border border-[#D5DCEB] text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      disabled={isLogging}
+                      className="px-6 py-2.5 text-[14px] font-medium font-rubik border border-[#D5DCEB] text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={handleSaveSession}
-                      className="px-6 py-2.5 text-[14px] font-medium font-rubik bg-[#333333] text-white rounded-lg hover:bg-[#222222] transition-colors shadow-sm"
+                      onClick={handleSaveSessionClick}
+                      disabled={isLogging}
+                      className="px-6 py-2.5 text-[14px] font-medium font-rubik bg-[#333333] text-white rounded-lg hover:bg-[#222222] transition-colors shadow-sm flex items-center gap-2 disabled:bg-gray-700 disabled:cursor-not-allowed"
                     >
-                      + Log Session
+                      {isLogging ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Logging...</span>
+                        </>
+                      ) : (
+                        "+ Log Session"
+                      )}
                     </button>
                   </div>
                 </div>
