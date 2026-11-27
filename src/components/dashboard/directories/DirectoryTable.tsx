@@ -123,57 +123,67 @@ export function DirectoryTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {items.map((item) => (
-              <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                <td className="py-5 px-6 text-[14px] font-bold text-[#1f2937] font-sans">
-                  {item.name}
-                </td>
-                <td className="py-5 px-6 text-[14px] text-[#4b5563] font-sans max-w-[150px] leading-snug">
-                  {item.title}
-                </td>
-                <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
-                  {item.cohorts}
-                </td>
-                <td className="py-5 px-6 text-[14px] text-[#4b5563] font-sans max-w-[150px] leading-snug">
-                  {item.expertise}
-                </td>
-                <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
-                  {item.rating}
-                </td>
-                <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
-                  {item.menteesCount}
-                </td>
-                <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
-                  {item.sessionsCount}
-                </td>
-                <td className="py-5 px-6">
-                  <span
-                    className={cn(
-                      "px-3 py-1 text-[11px] font-medium rounded-[4px] border font-sans",
-                      item.status === "Limited"
-                        ? "bg-white border-gray-300 text-gray-600"
-                        : "bg-[#333333] border-[#333333] text-white"
-                    )}
-                  >
-                    {item.status}
-                  </span>
-                </td>
-                <td className="py-5 px-6">
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => onProfileClick?.(item)}
-                      className="px-4 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-[4px] text-[12px] font-medium font-sans transition-colors"
-                    >
-                      Profile
-                    </button>
-                    <button className="px-4 py-1.5 bg-[#333333] text-white hover:bg-[#222222] rounded-[4px] text-[12px] font-medium font-sans transition-colors">
-                      Book
-                    </button>
-                  </div>
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="py-16 text-center text-gray-400">
+                  <p className="text-[15px] font-sans font-medium">No records found.</p>
+                  <p className="text-[13px] font-sans mt-1">Data will appear here once available from the administrator.</p>
                 </td>
               </tr>
-            ))}
+            ) : (
+              items.map((item) => (
+                <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="py-5 px-6 text-[14px] font-bold text-[#1f2937] font-sans">
+                    {item.name}
+                  </td>
+                  <td className="py-5 px-6 text-[14px] text-[#4b5563] font-sans max-w-[150px] leading-snug">
+                    {item.title}
+                  </td>
+                  <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
+                    {item.cohorts}
+                  </td>
+                  <td className="py-5 px-6 text-[14px] text-[#4b5563] font-sans max-w-[150px] leading-snug">
+                    {item.expertise}
+                  </td>
+                  <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
+                    {item.rating}
+                  </td>
+                  <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
+                    {item.menteesCount}
+                  </td>
+                  <td className="py-5 px-6 text-[14px] text-[#1f2937] font-medium font-sans">
+                    {item.sessionsCount}
+                  </td>
+                  <td className="py-5 px-6">
+                    <span
+                      className={cn(
+                        "px-3 py-1 text-[11px] font-medium rounded-[4px] border font-sans",
+                        item.status === "Limited"
+                          ? "bg-white border-gray-300 text-gray-600"
+                          : "bg-[#333333] border-[#333333] text-white"
+                      )}
+                    >
+                      {item.status}
+                    </span>
+                  </td>
+                  <td className="py-5 px-6">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => onProfileClick?.(item)}
+                        className="px-4 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-[4px] text-[12px] font-medium font-sans transition-colors"
+                      >
+                        Profile
+                      </button>
+                      <button className="px-4 py-1.5 bg-[#333333] text-white hover:bg-[#222222] rounded-[4px] text-[12px] font-medium font-sans transition-colors">
+                        Book
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
+
         </table>
       </div>
     </div>

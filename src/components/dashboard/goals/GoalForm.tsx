@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChangeEvent } from "react";
-import { X } from "lucide-react";
+import { X, Target, ChevronDown, Loader2 } from "lucide-react";
+import { ApiState } from "@/components/shared/ApiUI";
+import type { GoalCategory } from "@/types";
 
 interface GoalFormData {
   title: string;
   category: string;
-  targetDate: string;
+  startDate: string;
+  endDate: string;
   description: string;
 }
 
@@ -19,7 +22,13 @@ interface GoalFormProps {
   onChange: (
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
   ) => void;
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
+  mode?: "create" | "edit";
+  categories?: GoalCategory[];
+  categoriesLoading?: boolean;
+  categoryError?: string | null;
+  onRetryCategories?: () => void;
+  errors?: Record<string, string[]>;
 }
 
 export default function GoalForm({
@@ -28,208 +37,265 @@ export default function GoalForm({
   formData,
   onChange,
   onSave,
+  categories = [],
+  categoriesLoading = false,
+  categoryError = null,
+  onRetryCategories,
+  errors = {},
+  mode = "create",
 }: GoalFormProps) {
   const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [milestones, setMilestones] = useState<string[]>(["", ""]);
 
-  const handleSaveClick = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      onSave();
-    }, 1200);
+  const dialog = useRef<HTMLDivElement>(null);
+  const lock = useRef(false);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const close = () => {
+    if (!lock.current) onClose();
   };
+  const handleSaveClick = async () => {
+    if (lock.current) return;
+    lock.current = true;
+    setIsSaving(true);
+    try {
+      await onSave();
+    } finally {
+      lock.current = false;
+      setIsSaving(false);
+    }
+  };
+  useEffect(() => {
+    if (!isOpen || !isMounted) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.current?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !lock.current) closeRef.current();
+      if (event.key !== "Tab") return;
+      const elements = dialog.current?.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+      );
+      if (!elements?.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = elements[0],
+        last = elements[elements.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          document.activeElement === dialog.current)
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last ||
+          document.activeElement === dialog.current)
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.body.style.overflow = overflow;
+      previous?.focus();
+    };
+  }, [isOpen, isMounted]);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  const addMilestone = () => {
-    setMilestones((prev) => [...prev, ""]);
-  };
-
-  const updateMilestone = (index: number, value: string) => {
-    setMilestones((prev) => prev.map((m, i) => (i === index ? value : m)));
-  };
-
   if (!isOpen || !isMounted) {
     return null;
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+  const displayCategories = categories;
 
-        {/* Header */}
-        <div className="px-8 pt-8 pb-6 border-b border-gray-100 flex justify-between items-start">
-          <div>
-            <h2 className="text-[24px] font-bold text-gray-900 font-heading mb-1.5">
-              Create New Goal
-            </h2>
-            <p className="text-[15px] text-gray-600 font-sans">
-              Set a new personal or professional development goal.
-            </p>
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0" onClick={close} />
+
+      {/* Modal Content */}
+      <div
+        ref={dialog}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === "edit" ? "Edit Goal" : "New Goal"}
+        className="relative max-h-[90vh] overflow-y-auto outline-none w-full max-w-[600px] bg-white rounded-[16px] shadow-2xl flex flex-col pointer-events-auto"
+      >
+        {/* Header Section */}
+        <div className="p-8 pb-6">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-10 w-10 border border-gray-200 rounded-[10px] flex items-center justify-center">
+              <Target className="h-5 w-5 text-gray-700" strokeWidth={1.5} />
+            </div>
+            <button
+              onClick={close}
+              disabled={isSaving}
+              aria-label="Close goal"
+              className="text-gray-400 hover:text-gray-700 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <h2 className="text-[20px] font-medium text-gray-900 mb-1">
+            {mode === "edit" ? "Edit Goal" : "New Goal"}
+          </h2>
+          <p className="text-[14px] text-gray-500">
+            {mode === "edit"
+              ? "Update the details of this goal."
+              : "Something you want to be quietly building toward."}
+          </p>
         </div>
 
-        {/* Form Body */}
-        <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh]">
-
-          {/* Goal Title */}
-          <div>
-            <label
-              htmlFor="goal-title"
-              className="block text-[15px] font-bold text-gray-600 mb-2 font-sans"
-            >
-              Goal Title
-            </label>
-            <input
-              type="text"
-              id="goal-title"
-              name="title"
-              value={formData.title}
-              onChange={onChange}
-              placeholder="Enter goal title..."
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors font-sans"
-            />
-          </div>
-
-          {/* Category + Target Date */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label
-                htmlFor="goal-category"
-                className="block text-[15px] font-bold text-gray-600 mb-2 font-sans"
-              >
-                Category
-              </label>
-              <div className="relative">
-                <select
-                  id="goal-category"
-                  name="category"
-                  value={formData.category}
-                  onChange={onChange}
-                  className="w-full appearance-none px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-500 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors font-sans pr-10"
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSaveClick();
+          }}
+        >
+          <fieldset disabled={isSaving}>
+            {/* Form Body */}
+            <div className="px-8 pb-2 space-y-5">
+              {errors.general && (
+                <div
+                  role="alert"
+                  className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm"
                 >
-                  <option value="">Select Category</option>
-                  <option value="career">Career</option>
-                  <option value="personal">Personal</option>
-                  <option value="education">Education</option>
-                  <option value="health">Health</option>
-                  <option value="finance">Finance</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
-                  <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  {errors.general.join(", ")}
                 </div>
+              )}
+
+              {/* Title Input */}
+              <div>
+                <label
+                  htmlFor="goal-title"
+                  className="block text-[14px] text-gray-600 mb-2"
+                >
+                  Title
+                </label>
+                <input
+                  type="text"
+                  id="goal-title"
+                  name="title"
+                  value={formData.title}
+                  onChange={onChange}
+                  placeholder="e.g. Publish one essay a quarter"
+                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-[8px] text-[14px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-300 transition-colors"
+                />
+                {errors.title && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.title.join(", ")}
+                  </p>
+                )}
+              </div>
+
+              <ApiState
+                loading={categoriesLoading}
+                error={categoryError}
+                onRetry={onRetryCategories}
+              />
+              {!categoriesLoading &&
+                !categoryError &&
+                !displayCategories.length && (
+                  <p className="text-sm text-gray-500">
+                    No active categories. Ask your administrator to add a goal
+                    category.
+                  </p>
+                )}
+              {/* Category Select */}
+              <div>
+                <label
+                  htmlFor="goal-category"
+                  className="block text-[14px] text-gray-600 mb-2"
+                >
+                  Category
+                </label>
+                <div className="relative">
+                  <select
+                    id="goal-category"
+                    name="category"
+                    value={formData.category}
+                    onChange={onChange}
+                    className="w-full appearance-none px-4 py-2.5 bg-white border border-gray-200 rounded-[8px] text-[14px] text-gray-800 focus:outline-none focus:border-gray-300 transition-colors pr-10"
+                  >
+                    <option value="" disabled className="text-gray-400">
+                      Select category
+                    </option>
+                    {displayCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name || cat.description}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                  </div>
+                </div>
+                {errors.category && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.category.join(", ")}
+                  </p>
+                )}
+              </div>
+
+              {/* Additional Field (Description acting as the 2nd title from mockup) */}
+              <div>
+                <label
+                  htmlFor="goal-description"
+                  className="block text-[14px] text-gray-600 mb-2"
+                >
+                  Description<span className="text-gray-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="goal-description"
+                  name="description"
+                  value={formData.description}
+                  onChange={onChange}
+                  placeholder="What is your description?"
+                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-[8px] text-[14px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-300 transition-colors"
+                />
               </div>
             </div>
 
-            <div>
-              <label
-                htmlFor="goal-targetDate"
-                className="block text-[15px] font-bold text-gray-600 mb-2 font-sans"
+            {/* Footer */}
+            <div className="p-8 pt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={close}
+                disabled={isSaving}
+                className="px-6 py-2.5 border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 rounded-[8px] text-[14px] font-medium transition-colors disabled:opacity-50"
               >
-                Target Date
-              </label>
-              <input
-                type="text"
-                id="goal-targetDate"
-                name="targetDate"
-                value={formData.targetDate}
-                onChange={onChange}
-                placeholder="DD/MM/YYYY"
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors font-sans"
-              />
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving || (mode === "create" && categoriesLoading)}
+                className="px-6 py-2.5 bg-[#DB911E] text-white hover:bg-[#BA7815] rounded-[8px] text-[14px] font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : mode === "edit" ? (
+                  "Save changes"
+                ) : (
+                  "Add Goal"
+                )}
+              </button>
             </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <label
-              htmlFor="goal-description"
-              className="block text-[15px] font-bold text-gray-600 mb-2 font-sans"
-            >
-              Description
-            </label>
-            <textarea
-              id="goal-description"
-              name="description"
-              rows={5}
-              value={formData.description}
-              onChange={onChange}
-              placeholder="Describe your goal in detail..."
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors resize-y font-sans"
-            />
-          </div>
-
-          {/* Key Milestones */}
-          <div>
-            <label className="block text-[15px] font-bold text-gray-600 mb-3 font-sans">
-              Key Milestones (Optional)
-            </label>
-            <div className="space-y-3">
-              {milestones.map((milestone, index) => (
-                <input
-                  key={index}
-                  type="text"
-                  value={milestone}
-                  onChange={(e) => updateMilestone(index, e.target.value)}
-                  placeholder={`Milestone ${index + 1}...`}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors font-sans"
-                />
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={addMilestone}
-              className="mt-3 px-4 py-2 border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 rounded-lg text-[14px] font-medium font-sans transition-colors"
-            >
-              + Add Milestone
-            </button>
-          </div>
-
-        </div>
-
-        {/* Footer */}
-        <div className="px-8 py-5 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSaving}
-            className="px-6 py-2.5 border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 rounded-lg text-[14px] font-medium font-sans transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSaveClick}
-            disabled={isSaving}
-            className="px-6 py-2.5 bg-[#333333] text-white hover:bg-[#222222] rounded-lg text-[14px] font-medium font-sans transition-colors flex items-center gap-2 disabled:bg-gray-700 disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <>
-                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span>Saving...</span>
-              </>
-            ) : (
-              "Create Goal"
-            )}
-          </button>
-        </div>
-
+          </fieldset>
+        </form>
       </div>
     </div>,
     document.body,

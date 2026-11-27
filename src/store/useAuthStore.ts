@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { User, Program } from "@/lib/auth";
+import type { User, Program } from "@/lib/auth";
 
 interface AuthState {
   user: User | null;
@@ -25,11 +25,17 @@ export const useAuthStore = create<AuthState>()(
           user,
           token,
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
-          // keep activeProgram as is if it exists, or null
+          activeProgram:
+            get().user?.id === user.id ? get().activeProgram : (get().activeProgram || { id: "vision-2535", name: "Vision2535 Program", description: "A guided mentorship journey for leadership and personal growth." }),
         });
       },
       logout: () => {
-        set({ user: null, token: null, expiresAt: null, activeProgram: null });
+        set({
+          user: null,
+          token: null,
+          expiresAt: null,
+          activeProgram: null,
+        });
       },
       setActiveProgram: (program) => {
         set({ activeProgram: program });
@@ -37,7 +43,12 @@ export const useAuthStore = create<AuthState>()(
       verifySession: () => {
         const state = get();
         if (state.expiresAt && state.expiresAt < Date.now()) {
-          set({ user: null, token: null, expiresAt: null, activeProgram: null });
+          set({
+            user: null,
+            token: null,
+            expiresAt: null,
+            activeProgram: null,
+          });
           return false;
         }
         return !!state.user;
@@ -46,6 +57,6 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "vision2535_auth_session", // unique name to match old key
       storage: createJSONStorage(() => sessionStorage), // persist in sessionStorage
-    }
-  )
+    },
+  ),
 );

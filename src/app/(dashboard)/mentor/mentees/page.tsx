@@ -1,18 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import MenteeTable, { MenteeRecord } from "@/components/dashboard/mentees/MenteeTable";
-import MenteeProfileModal from "@/components/dashboard/mentees/MenteeProfileModal";
-import BookSessionModal from "@/components/dashboard/mentees/BookSessionModal";
+import { useRouter } from "next/navigation";
+import MenteeTable, {
+  MenteeRecord,
+} from "@/components/dashboard/mentees/MenteeTable";
+import { BookSessionModal } from "@/components/dashboard/sessions/BookSessionModal";
 
 export default function AllMenteesPage() {
-  const [selectedMentee, setSelectedMentee] = useState<MenteeRecord | null>(null);
+  const [selectedMentee, setSelectedMentee] = useState<MenteeRecord | null>(
+    null,
+  );
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const router = useRouter();
 
   const handleViewProfile = (mentee: MenteeRecord) => {
-    setSelectedMentee(mentee);
-    setIsProfileModalOpen(true);
+    router.push(`/mentor/mentees/${mentee.id}`);
   };
 
   const handleBookSession = (mentee: MenteeRecord) => {
@@ -23,34 +27,20 @@ export default function AllMenteesPage() {
   return (
     <div className="min-h-screen">
       <div className="space-y-6">
-        {/* Header */}
-        <div className="space-y-1">
-          <h1 className="text-[32px] font-bold text-[#003F3A] font-dm-sans">
-            All Mentees
-          </h1>
-          <p className="text-[16px] text-[#003F3A]/80 font-rubik">
-            View your mentees' profiles, track their progress, goals, and achievements
-          </p>
-        </div>
-
         {/* Content */}
-        <MenteeTable onViewProfile={handleViewProfile} />
-
-        {/* Modals */}
-        <MenteeProfileModal
-          isOpen={isProfileModalOpen}
-          onClose={() => setIsProfileModalOpen(false)}
-          mentee={selectedMentee}
-          onBookSession={(mentee) => {
-            setIsProfileModalOpen(false);
-            handleBookSession(mentee);
-          }}
-        />
+        <div className="bg-white rounded-[16px] border border-gray-200 shadow-[0_2px_12px_rgba(0,0,0,0.02)] pt-2 pb-6">
+          <MenteeTable onViewProfile={handleViewProfile} />
+        </div>
 
         <BookSessionModal
           isOpen={isBookingModalOpen}
           onClose={() => setIsBookingModalOpen(false)}
-          mentee={selectedMentee}
+          preselectedMentee={selectedMentee?.id}
+          title={
+            selectedMentee?.name
+              ? `Book Session with ${selectedMentee.name}`
+              : "Book Session"
+          }
         />
       </div>
     </div>

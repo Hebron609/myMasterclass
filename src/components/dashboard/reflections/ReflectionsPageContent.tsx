@@ -1,466 +1,454 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import type { ChangeEvent } from "react";
-import { Search, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Lock, MessageSquare, Loader2 } from "lucide-react";
+import { useAuthStore } from "@/store/useAuthStore";
 
-interface ReflectionItem {
-  id: string;
-  title: string;
-  date: string;
-  snippet: string;
-  tags: string[];
-  mentorResponded: boolean;
-}
-
-interface TimelineEntry {
-  month: string;
-  year: string;
-  count: number;
-}
-
-const mockReflections: ReflectionItem[] = [
-  {
-    id: "ref-1",
-    title: "Monthly Progress Reflection",
-    date: "Jan 25, 2025",
-    snippet:
-      "This month I've made significant progress on my public speaking goal. Attended 2 workshops and...",
-    tags: ["Growth", "Goals"],
-    mentorResponded: true,
-  },
-  {
-    id: "ref-2",
-    title: "Monthly Progress Reflection",
-    date: "Jan 25, 2025",
-    snippet:
-      "This month I've made significant progress on my public speaking goal. Attended 2 workshops and...",
-    tags: ["Growth", "Goals"],
-    mentorResponded: true,
-  },
-  {
-    id: "ref-3",
-    title: "Monthly Progress Reflection",
-    date: "Jan 25, 2025",
-    snippet:
-      "This month I've made significant progress on my public speaking goal. Attended 2 workshops and...",
-    tags: ["Growth", "Goals"],
-    mentorResponded: true,
-  },
-  {
-    id: "ref-4",
-    title: "Monthly Progress Reflection",
-    date: "Jan 25, 2025",
-    snippet:
-      "This month I've made significant progress on my public speaking goal. Attended 2 workshops and...",
-    tags: ["Growth", "Goals"],
-    mentorResponded: true,
-  },
-];
-
-const timelineData: TimelineEntry[] = [
-  { month: "Jan", year: "2026", count: 5 },
-  { month: "Dec", year: "2025", count: 4 },
-  { month: "Nov", year: "2025", count: 3 },
-  { month: "Oct", year: "2025", count: 2 },
-];
-
-const popularTags = [
-  "Growth",
-  "Goals",
-  "Session",
-  "Leadership",
-  "Career",
-  "Planning",
-  "Mentorship",
-  "Learning",
-];
-
-interface ReflectionsPageContentProps {
-  role?: "MENTEE" | "MENTOR";
-}
-
-const mentorNotes = [
-  {
-    id: "note-1",
-    title: "Progress Notes – January",
-    date: "Jan 20, 2026",
-    mentee: "Mentee Name",
-    snippet: "Good progress on communication skills. Suggest focusing on...",
-  },
-  {
-    id: "note-2",
-    title: "Action Items Follow-up",
-    date: "Jan 10, 2026",
-    mentee: "Mentee Name 2",
-    snippet: "Followed up on action items from last session. Needs more support with...",
-  },
-];
-
-export default function ReflectionsPageContent({
-  role = "MENTEE",
-}: ReflectionsPageContentProps) {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-  const [formData, setFormData] = useState({
-    title: "",
-    content: "",
-    tags: "",
-  });
-
+import { useAuth } from "@/context/AuthContext";
+import { useApiResource } from "@/hooks/useApiResource";
+import { fetchMentees } from "@/lib/services/users";
+import {
+  fetchReflections,
+  createReflection,
+  submitReflectionFeedback,
+} from "@/lib/services/reflections";
+import { ApiState, formatDate } from "@/components/shared/ApiUI";
+import { ReflectionsSkeleton, QuietParticipantsSkeleton } from "@/components/shared/Skeletons";
+import { errorMessage } from "@/lib/api";
+export default function ReflectionsPageContent() {
+  const { token } = useAuth();
+  const [selectedUser, setSelectedUser] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeMood, setActiveMood] = useState("");
+  const [activeType, setActiveType] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const { user } = useAuthStore();
+  const role = user?.role || "MENTEE";
+  const mentees = useApiResource(
+    "reflection-mentees",
+    fetchMentees,
+    role === "MENTOR",
+  );
+  const resource = useApiResource(
+    "reflection-thread:" + selectedUser,
+    (auth) =>
+      fetchReflections(auth, role === "MENTOR" ? selectedUser : undefined),
+    role !== "MENTOR" || Boolean(selectedUser),
+  );
+  const selected = mentees.data?.find((user) => user.id === selectedUser);
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
+    if (role === "MENTOR" && !selectedUser && mentees.data?.length) {
+      setSelectedUser(mentees.data[0].id);
+    }
+  }, [role, selectedUser, mentees.data]);
+  useEffect(() => {
+    const reload = () => resource.reload();
+    window.addEventListener("reflection_updated", reload);
+    return () => window.removeEventListener("reflection_updated", reload);
+  }, [resource.reload]);
+  const [replyingToId, setReplyingToId] = useState<string | number | null>(
+    null,
+  );
+  const [feedbackInput, setFeedbackInput] = useState("");
+  const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
+  const [mentorNote, setMentorNote] = useState("");
+  const [mentorNoteBusy, setMentorNoteBusy] = useState(false);
 
-  const handleInputChange = (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => {
-    const { id, value } = e.target;
-    const fieldName = id.replace("reflection-", "");
-    setFormData((prev) => ({
-      ...prev,
-      [fieldName]: value,
-    }));
+  const handleSendMentorReflection = async () => {
+    if (!token || !mentorNote.trim() || mentorNoteBusy) return;
+    setMentorNoteBusy(true);
+    setError(null);
+    try {
+      const targetReflection =
+        resource.data?.find((item) => !item.mentorFeedbackText) ||
+        resource.data?.[0];
+      if (targetReflection) {
+        await submitReflectionFeedback(
+          token,
+          targetReflection.id,
+          mentorNote.trim(),
+        );
+      } else {
+        await createReflection(token, {
+          title: mentorNote.trim().split("\n")[0].slice(0, 100),
+          body: mentorNote.trim(),
+          reflected_at: new Date().toISOString().slice(0, 10),
+        });
+      }
+      setMentorNote("");
+      setFeedbackSuccess(
+        `Reflection note sent to ${selected?.name || "mentee"}.`,
+      );
+      resource.reload();
+      setTimeout(() => setFeedbackSuccess(null), 3000);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setMentorNoteBusy(false);
+    }
   };
 
-  const handleSaveReflection = () => {
-    console.log("Reflection saved:", formData);
-    setIsModalOpen(false);
+  const handleSendFeedback = async (id: string | number) => {
+    if (!token || !feedbackInput.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await submitReflectionFeedback(token, id, feedbackInput.trim());
+      setFeedbackInput("");
+      setReplyingToId(null);
+      setFeedbackSuccess("Feedback submitted successfully.");
+      resource.reload();
+      setTimeout(() => setFeedbackSuccess(null), 3000);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  return (
-    <div className="min-h-screen">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-[26px] font-bold text-[#003F3A] font-dm-sans mb-2">
-              {role === "MENTOR" ? "Notes & Reflections" : "My Reflections"}
-            </h1>
-            <p className="text-[16px] text-[#003F3A] font-rubik">
-              {role === "MENTOR"
-                ? "View mentee reflections and add your notes"
-                : "Document your journey, insights, and growth"}
-            </p>
-          </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="px-6 py-3 text-[14px] font-medium font-rubik bg-[#333333] text-white rounded-lg hover:bg-[#222222] transition-colors"
-          >
-            + Write New Reflection
-          </button>
-        </div>
-
-        {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[
-            { label: "Total Reflections", value: 12 },
-            { label: "This Month", value: 3 },
-            { label: "With Mentor Feedback", value: 8 },
-            { label: "Tags Used", value: 5 },
-          ].map((stat) => (
+  const send = async () => {
+    if (!token || busy || !body.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const parsedTags = tagsInput
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      await createReflection(token, {
+        title: body.trim().split("\n")[0].slice(0, 100),
+        body: body.trim(),
+        reflected_at: new Date().toISOString().slice(0, 10),
+        ...(activeMood ? { mood: activeMood } : {}),
+        ...(activeType ? { type: activeType } : {}),
+        ...(parsedTags.length > 0 ? { tags: parsedTags } : {}),
+      });
+      setBody("");
+      setActiveMood("");
+      setActiveType("");
+      setTagsInput("");
+      resource.reload();
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const thread = (
+    <>
+      <ApiState {...resource} onRetry={resource.reload} />
+      {feedbackSuccess && (
+        <p
+          role="status"
+          className="p-3 bg-green-50 border border-green-200 text-green-750 text-sm rounded-xl mb-4"
+        >
+          {feedbackSuccess}
+        </p>
+      )}
+      {resource.loading ? (
+        <ReflectionsSkeleton count={3} />
+      ) : (
+        <>
+          {resource.data?.map((item) => (
             <div
-              key={stat.label}
-              className="bg-white border border-[#E5E7EB] rounded-xl px-6 py-6 text-center shadow-sm"
+              key={item.id}
+              className="bg-white border border-gray-200 rounded-[16px] p-6 shadow-[0_2px_12px_rgba(0,0,0,0.02)]"
             >
-              <p className="text-[24px] font-bold text-[#333333] font-dm-sans mb-1">
-                {stat.value}
-              </p>
-              <p className="text-[13px] text-[#4B5563] font-rubik">
-                {stat.label}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Filter Section */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl p-8 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Search Input */}
-            <div>
-              <label className="block text-[15px] font-bold text-[#4B5563] font-sans mb-3">
-                Search
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search reflections"
-                  className="w-full px-4 py-3 text-[15px] bg-[#fdfdfd] border border-[#D5DCEB] rounded-lg text-[#4B5563] font-rubik placeholder:text-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 transition-all"
-                />
-              </div>
-            </div>
-
-            {/* Filter by Tags */}
-            <div>
-              <label
-                htmlFor="filter-tags"
-                className="block text-[15px] font-bold text-[#4B5563] font-sans mb-3"
-              >
-                Filter by Tags
-              </label>
-              <div className="relative">
-                <select
-                  id="filter-tags"
-                  className="w-full appearance-none px-4 py-3 text-[15px] bg-[#fdfdfd] border border-[#D5DCEB] rounded-lg text-[#4B5563] font-rubik focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 transition-all pr-10"
-                >
-                  <option>All Tags</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
-                  <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-wrap items-center gap-2 text-[13.5px] font-sans">
+                  <span className="font-medium text-gray-900">
+                    {role === "MENTOR"
+                      ? selected?.name
+                      : [user?.firstName, user?.lastName].filter(Boolean).join(" ")}
+                  </span>
+                  <span className="text-gray-400">→</span>
+                  <span className="text-gray-500">
+                    {formatDate(item.createdAt)}
+                  </span>
+                  {item.mood && (
+                    <span className="ml-2 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#FEF9E1] text-[#9b6514] border border-[#F3E7BE]">
+                      Mood: {item.mood}
+                    </span>
+                  )}
+                  {item.type && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#F1F5F9] text-[#475569]">
+                      {item.type}
+                    </span>
+                  )}
                 </div>
+                <span className="px-3 py-1 bg-[#EEF1F9] text-[#334155] rounded-full text-[11px] font-medium font-sans">
+                  From Mentee
+                </span>
               </div>
-            </div>
-
-            {/* Date Range */}
-            <div>
-              <label
-                htmlFor="date-range"
-                className="block text-[15px] font-bold text-[#4B5563] font-sans mb-3"
-              >
-                Date Range
-              </label>
-              <div className="relative">
-                <select
-                  id="date-range"
-                  className="w-full appearance-none px-4 py-3 text-[15px] bg-[#fdfdfd] border border-[#D5DCEB] rounded-lg text-[#4B5563] font-rubik focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 transition-all pr-10"
-                >
-                  <option>All Time</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
-                  <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Reflections List */}
-          <div className="space-y-6">
-            <div className="bg-white border border-gray-100 rounded-xl p-8 shadow-sm">
-              <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans mb-6 pb-6 border-b border-[#E5E7EB]">
-                {role === "MENTOR" ? "Mentee’s Reflections" : "Reflections (Latest First)"}
-              </h2>
-              <div className="space-y-6">
-                {mockReflections.map((reflection) => (
-                  <div
-                    key={reflection.id}
-                    className="bg-white border border-[#E5E7EB] rounded-xl p-6 shadow-sm hover:border-gray-300 transition-colors"
-                  >
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-[15px] font-bold text-[#003F3A] font-dm-sans">
-                          {reflection.title}
-                        </h3>
-                        {reflection.mentorResponded && (
-                          <span className="px-2.5 py-1 text-[10px] font-bold font-rubik bg-[#333333] text-white rounded-md uppercase tracking-wider">
-                            Responded
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-[13px] text-[#6B7280] font-rubik mb-2">
-                      {reflection.date}
-                    </p>
-                    <p className="text-[14px] leading-relaxed text-[#4B5563] font-rubik mb-5">
-                      {reflection.snippet}
-                    </p>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-2">
-                        {reflection.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-3 py-1.5 text-[12px] font-medium font-rubik bg-[#F2F5F5] text-[#4B5563] rounded-md"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                      <button
-                        onClick={() => setIsModalOpen(true)}
-                        className="px-4 py-2 text-[12px] font-medium font-rubik border border-[#D5DCEB] text-[#003F3A] rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
-                      >
-                        {role === "MENTOR" ? "View/Respond" : "View/Edit"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-8 flex justify-center">
-                <button className="px-8 py-2 text-[14px] font-medium font-rubik border border-[#D5DCEB] text-[#4B5563] rounded-lg hover:bg-gray-50 transition-colors">
-                  Load More
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Sidebar Widgets */}
-          <div className="space-y-8">
-            {/* Reflection Timeline */}
-            <div className="bg-white border border-gray-100 rounded-xl p-8 shadow-sm">
-              <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans mb-6 pb-6 border-b border-[#E5E7EB]">
-                Reflection Timeline
-              </h2>
-              <div className="space-y-3">
-                {timelineData.map((entry) => (
-                  <div
-                    key={`${entry.month}-${entry.year}`}
-                    className="flex items-center justify-between bg-[#F2F5F5] px-6 py-4 rounded-xl hover:bg-[#EBEEF0] transition-colors"
-                  >
-                    <p className="text-[14px] font-medium font-rubik text-[#333333]">
-                      {entry.month} {entry.year}
-                    </p>
-                    <p className="text-[14px] font-medium font-rubik text-[#333333]">
-                      {entry.count} entries
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Your Notes Widget (Mentor Only) */}
-            {role === "MENTOR" && (
-              <div className="bg-white border border-gray-100 rounded-xl p-8 shadow-sm">
-                <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans mb-6 pb-6 border-b border-[#E5E7EB]">
-                  Your Notes
-                </h2>
-                <div className="space-y-8">
-                  {mentorNotes.map((note) => (
-                    <div key={note.id}>
-                      <h3 className="text-[15px] font-bold text-[#333333] font-dm-sans mb-1.5">
-                        {note.title}
-                      </h3>
-                      <p className="text-[13px] text-[#6B7280] font-rubik mb-1">
-                        {note.date}
-                      </p>
-                      <p className="text-[13px] font-medium text-[#4B5563] font-rubik mb-2">
-                        {note.mentee}
-                      </p>
-                      <p className="text-[13px] leading-relaxed text-[#6B7280] font-rubik italic">
-                        {note.snippet}
-                      </p>
-                    </div>
+              <p className="text-[14.5px] text-gray-800 font-sans leading-relaxed mb-4 whitespace-pre-wrap">
+                {item.content}
+              </p>
+              {item.tags && item.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-5">
+                  {item.tags.map((tag, idx) => (
+                    <span
+                      key={`${tag}-${idx}`}
+                      className="px-2.5 py-0.5 bg-[#F8F9FA] border border-gray-100 rounded-full text-[11px] text-gray-500 font-medium font-sans"
+                    >
+                      #{tag}
+                    </span>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Popular Tags */}
-            <div className="bg-white border border-gray-100 rounded-xl p-8 shadow-sm">
-              <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans mb-6 pb-6 border-b border-[#E5E7EB]">
-                Popular Tags
-              </h2>
-              <div className="flex flex-wrap gap-2.5">
-                {popularTags.map((tag) => (
-                  <button
-                    key={tag}
-                    className="px-4 py-2 text-[14px] font-medium font-rubik bg-[#F2F5F5] text-[#333333] rounded-lg border border-[#E5E7EB] hover:bg-[#EAECF0] transition-colors"
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
+              )}
+              {item.mentorFeedbackText && (
+                <div className="bg-[#F8F7F5] rounded-[12px] p-5">
+                  <div className="flex items-center gap-2 mb-3 text-[#DB911E]">
+                    <MessageSquare className="w-4 h-4" />
+                    <span className="text-[13px] font-medium font-sans">
+                      Mentor’s Response
+                    </span>
+                  </div>
+                  <p className="text-[14px] text-gray-800 font-sans leading-relaxed">
+                    {item.mentorFeedbackText}
+                  </p>
+                </div>
+              )}
+              {role === "MENTOR" && !item.mentorFeedbackText && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  {replyingToId === item.id ? (
+                    <div className="space-y-3">
+                      <textarea
+                        value={feedbackInput}
+                        onChange={(e) => setFeedbackInput(e.target.value)}
+                        placeholder="Write mentor feedback and insights for this reflection..."
+                        className="w-full h-24 p-3 bg-[#F9FAFB] border border-gray-200 rounded-[10px] text-[13.5px] font-sans focus:outline-none focus:border-[#DB911E]"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingToId(null);
+                            setFeedbackInput("");
+                          }}
+                          className="px-4 py-1.5 border border-gray-200 text-gray-700 text-xs rounded-lg hover:bg-gray-50 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || !feedbackInput.trim()}
+                          onClick={() => handleSendFeedback(item.id)}
+                          className="px-4 py-1.5 bg-[#DB911E] text-white text-xs font-medium rounded-lg hover:bg-[#BA7815] disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          {busy ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Submitting...</span>
+                            </>
+                          ) : (
+                            "Send Feedback"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReplyingToId(item.id);
+                        setFeedbackInput("");
+                      }}
+                      className="text-[13px] font-medium text-[#DB911E] hover:text-[#BA7815] flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Leave mentor feedback</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+          ))}
+          {resource.data?.length === 0 && (
+            <p className="py-6 text-sm text-gray-500">No reflections yet.</p>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  if (role === "MENTOR") {
+    return (
+      <div className="w-full pb-10 flex flex-col md:flex-row gap-6 items-start">
+        {/* Left Sidebar for Mentees */}
+        <div className="w-full md:w-[280px] bg-white border border-gray-200 rounded-[16px] overflow-hidden shrink-0 shadow-[0_2px_12px_rgba(0,0,0,0.02)] sticky top-6">
+          <div className="p-4 px-5 border-b border-gray-100">
+            <h3 className="text-[13.5px] font-medium text-gray-500 font-sans">
+              Mentees
+            </h3>
+          </div>
+          <div className="flex flex-col p-2.5 gap-1">
+            <ApiState {...mentees} onRetry={mentees.reload} />
+            {mentees.loading ? (
+              <QuietParticipantsSkeleton count={3} />
+            ) : (
+              mentees.data?.map((mentee) => (
+                <button
+                  key={mentee.id}
+                  onClick={() => setSelectedUser(mentee.id)}
+                  className={
+                    "flex items-center justify-between w-full px-4 py-3 rounded-[12px] text-left transition-colors " +
+                    (selectedUser === mentee.id
+                      ? "bg-[#0F172A] text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-50")
+                  }
+                >
+                  <span className="text-[14px] font-medium font-sans">
+                    {mentee.name}
+                  </span>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Form Modal */}
-        {isModalOpen &&
-          isMounted &&
-          createPortal(
-            <div className="fixed inset-0 z-50 flex h-screen w-screen items-center justify-center bg-black/60 p-4">
-              <div className="w-full max-w-2xl rounded-2xl border border-[#E5E7EB] bg-white shadow-2xl overflow-hidden flex flex-col">
-                <div className="flex items-center justify-between px-8 py-6 border-b border-[#E5E7EB]">
-                  <h2 className="text-[20px] font-bold text-[#003F3A] font-dm-sans">
-                    New Reflection
-                  </h2>
-                  <button
-                    onClick={() => setIsModalOpen(false)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
-                    aria-label="Close modal"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="p-8 space-y-6">
-                  <div>
-                    <label
-                      htmlFor="reflection-title"
-                      className="block text-[15px] font-bold text-[#4B5563] font-sans mb-2"
+        {/* Right Main Content */}
+        <div className="flex-1 w-full space-y-6">
+          {/* Send Reflection box */}
+          <div className="bg-white border border-gray-200 rounded-[16px] p-6 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-[13.5px] font-medium text-[#34A853] font-sans">
+                Send a reflection to {selected?.name || "a mentee"}
+              </h2>
+            </div>
+            <textarea
+              value={mentorNote}
+              onChange={(e) => setMentorNote(e.target.value)}
+              placeholder="Something you've been sitting with..."
+              className="w-full h-[120px] p-4 bg-[#F9FAFB] border border-gray-200 rounded-[12px] text-[14px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-300 focus:bg-white transition-colors font-sans resize-none mb-4"
+            />
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={mentorNoteBusy || !mentorNote.trim() || !selectedUser}
+                onClick={() => void handleSendMentorReflection()}
+                className="disabled:opacity-50 px-5 py-2.5 bg-[#DB911E] text-white rounded-[8px] text-[13px] font-medium font-sans hover:bg-[#BA7815] transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
+              >
+                {mentorNoteBusy ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Sending...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      Title
-                    </label>
-                    <input
-                      id="reflection-title"
-                      type="text"
-                      value={formData.title}
-                      onChange={handleInputChange}
-                      placeholder="Give your reflection a title..."
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 transition-colors font-sans"
-                    />
-                  </div>
+                      <path d="m22 2-7 20-4-9-9-4Z" />
+                      <path d="M22 2 11 13" />
+                    </svg>
+                    Send Reflection
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
 
-                  <div>
-                    <label
-                      htmlFor="reflection-content"
-                      className="block text-[15px] font-bold text-[#4B5563] font-sans mb-2"
-                    >
-                      Reflection Content
-                    </label>
-                    <textarea
-                      id="reflection-content"
-                      value={formData.content}
-                      onChange={handleInputChange}
-                      placeholder="Write your reflection here..."
-                      rows={6}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 transition-colors resize-none font-sans"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="reflection-tags"
-                      className="block text-[15px] font-bold text-[#4B5563] font-sans mb-2"
-                    >
-                      Tags
-                    </label>
-                    <input
-                      id="reflection-tags"
-                      type="text"
-                      value={formData.tags}
-                      onChange={handleInputChange}
-                      placeholder="Add tags (comma separated)..."
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 transition-colors font-sans"
-                    />
-                  </div>
-
-                  <div className="pt-4 flex justify-end gap-3">
-                    <button
-                      onClick={() => setIsModalOpen(false)}
-                      className="px-6 py-2.5 border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 rounded-lg text-[14px] font-medium font-sans transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSaveReflection}
-                      className="px-6 py-2.5 bg-[#333333] text-white hover:bg-[#222222] rounded-lg text-[14px] font-medium font-sans transition-colors shadow-sm"
-                    >
-                      + Save Reflection
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>,
-            document.body,
+          {selectedUser ? (
+            thread
+          ) : (
+            <p className="text-sm text-gray-500">
+              Choose a mentee to read their reflections.
+            </p>
           )}
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="w-full pb-10 space-y-6">
+      {/* Send Reflection Card */}
+      <div className="bg-white border border-gray-200 rounded-[16px] p-6 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+        <h2 className="text-[14px] font-medium text-gray-700 mb-4 font-sans">
+          Send Reflection
+        </h2>
+
+        <textarea
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="What is settling in this week?..."
+          className="w-full h-[140px] p-4 bg-[#F9FAFB] border border-gray-200 rounded-[12px] text-[14px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-300 focus:bg-white transition-colors font-sans resize-none mb-4"
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-[13px] font-medium text-gray-700 font-sans">
+              Mood:
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {["Clear", "Steady", "Hopeful", "Tired", "Proud"].map((mood) => (
+                <button
+                  key={mood}
+                  type="button"
+                  onClick={() =>
+                    setActiveMood((curr) => (curr === mood ? "" : mood))
+                  }
+                  className={`px-3.5 py-1.5 text-[12px] font-medium font-sans rounded-full border transition-all cursor-pointer ${
+                    activeMood === mood
+                      ? "bg-[#111827] text-white border-[#111827] shadow-xs"
+                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  {mood}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            disabled={busy || !body.trim()}
+            onClick={send}
+            className="disabled:opacity-50 px-5 py-2 bg-[#DB911E] text-white rounded-[8px] text-[13px] font-medium font-sans hover:bg-[#BA7815] transition-colors flex items-center gap-2"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Sending...</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m22 2-7 20-4-9-9-4Z" />
+                  <path d="M22 2 11 13" />
+                </svg>
+                Send Reflection
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      )}
+      {thread}
     </div>
   );
 }
-

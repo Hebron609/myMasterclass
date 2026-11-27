@@ -17,6 +17,14 @@
   select {
     @apply text-gray-900 placeholder:text-gray-400;
   }
+
+  @media screen and (max-width: 768px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
 }
 
 @layer utilities {
@@ -27,6 +35,19 @@
   .font-rubik {
     font-family: "Rubik", sans-serif;
   }
+
+  .scrollbar-hide,
+  .hide-scrollbar,
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar,
+  .hide-scrollbar::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 :root {
@@ -34,14 +55,61 @@
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* Dark theme paused - keeping consistent light theme across all OS preferences */
 
 body {
   color: var(--foreground);
   background: var(--background);
+}
+
+.brand-page-loader {
+  background:
+    radial-gradient(
+      ellipse at 50% 44%,
+      rgba(219, 145, 30, 0.055),
+      transparent 58%
+    ),
+    #fafaf8;
+}
+.brand-loader-bar {
+  animation: brand-loader-sweep 1.45s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+}
+.brand-loader-glow {
+  animation: brand-loader-breathe 2.8s ease-in-out infinite alternate;
+}
+.brand-inline-spinner {
+  animation: brand-loader-spin 0.85s linear infinite;
+}
+@keyframes brand-loader-sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(410%);
+  }
+}
+@keyframes brand-loader-breathe {
+  from {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 0.75;
+    transform: scale(1.08);
+  }
+}
+@keyframes brand-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-loader-bar,
+  .brand-loader-glow,
+  .brand-inline-spinner {
+    animation: none;
+  }
+  .brand-loader-bar {
+    transform: translateX(100%);
+  }
 }

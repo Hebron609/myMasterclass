@@ -25,7 +25,12 @@ export function middleware(request: NextRequest) {
     "/otp",
   ];
 
-  if (publicRoutes.includes(pathname)) {
+  if (
+    publicRoutes.includes(pathname) ||
+    pathname.startsWith("/backend-api/") ||
+    pathname.startsWith("/icons/") ||
+    pathname.startsWith("/images/")
+  ) {
     return NextResponse.next();
   }
 
@@ -45,7 +50,7 @@ export function middleware(request: NextRequest) {
     ADMIN: ["/admin", "/select-program"],
   };
 
-  const allowedRoutes = roleRouteMap[userRole] || [];
+  const allowedRoutes = [...(roleRouteMap[userRole] || []), "/onboarding"];
   const isAllowedRoute = allowedRoutes.some((route) =>
     pathname.startsWith(route),
   );

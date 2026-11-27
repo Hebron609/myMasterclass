@@ -1,177 +1,1611 @@
 "use client";
 
-import { useState } from "react";
-import { Search, User, Image as ImageIcon, X, Filter, Download, ChevronDown } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  Award,
+  X,
+  Check,
+  Download,
+  Calendar,
+  Mail,
+  MapPin,
+  Clock,
+  Trophy,
+  Sparkles,
+  FileCheck2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Users,
+  FileText,
+  Loader2,
+} from "lucide-react";
+import { BookSessionModal } from "@/components/dashboard/sessions/BookSessionModal";
+
+import { useAuth } from "@/context/AuthContext";
+import { useApiResource } from "@/hooks/useApiResource";
+import {
+  fetchAdminCertificates,
+  certificateTitle,
+  certificateStatus,
+  issueCertificate,
+} from "@/lib/services/certificates";
+import { fetchAdminUsers } from "@/lib/services/admin";
+import { ApiState, FormError, formatDate } from "@/components/shared/ApiUI";
+import { fetchMentee } from "@/lib/services/users";
+import { fetchReflections } from "@/lib/services/reflections";
+import { errorMessage } from "@/lib/api";
+
+export interface CertificateRecord {
+  id: string | number;
+  name: string;
+  certificate: string;
+  status: "Pending" | "Issued" | "Not Eligible" | "Unknown";
+  userId?: string;
+  date: string;
+  cohort?: string;
+  certificateId?: string;
+  notes?: string;
+  email?: string;
+  location?: string;
+  lastSession?: string;
+  avatarUrl?: string;
+}
+
+export interface RecipientOption {
+  id: string | number;
+  name: string;
+  email?: string;
+  cohort: string;
+  activity: string;
+  eligibility: "Eligible" | "Not Eligible" | "Review Needed";
+  selected: boolean;
+}
+
+export interface RecentlyIssuedRecord {
+  id: string | number;
+  recipient: string;
+  certificate: string;
+  issued: string;
+  status: "Pending" | "Delivered";
+}
 
 export default function AdminCertificatesPage() {
-  const [activeModal, setActiveModal] = useState<"none" | "create_template" | "generate_step1" | "generate_step2" | "generate_step3" | "generate_step4" | "preview_certificate" | "bulk_issue">("none");
+  const [mounted, setMounted] = useState(false);
+  const [isBookSessionOpen, setIsBookSessionOpen] = useState(false);
 
+  // View mode: "list" (main status table), "profile" (mentee detailed profile), "issue" (full issue certificate page)
+  const [viewMode, setViewMode] = useState<"list" | "profile" | "issue">(
+    "list",
+  );
+
+  // Mentee profile detailed view state
+  const [selectedMentee, setSelectedMentee] =
+    useState<CertificateRecord | null>(null);
+  const [activeProfileTab, setActiveProfileTab] = useState<
+    "Overview" | "Goals" | "Sessions" | "Reflections" | "Certificates"
+  >("Overview");
+
+  // Main table certificate records
+  const { token } = useAuth();
+  const resource = useApiResource("admin-certificates", fetchAdminCertificates);
+  const accounts = useApiResource("certificate-recipients", (auth) =>
+    fetchAdminUsers(auth, { role: "mentee" }),
+  );
+  const participant = useApiResource(
+    `certificate-participant:${selectedMentee?.userId}`,
+    (auth) => fetchMentee(auth, selectedMentee!.userId!),
+    viewMode === "profile" && Boolean(selectedMentee?.userId),
+  );
+  const reflections = useApiResource(
+    `certificate-reflections:${selectedMentee?.userId}`,
+    (auth) => fetchReflections(auth, selectedMentee!.userId!),
+    viewMode === "profile" && Boolean(selectedMentee?.userId),
+  );
+  const [issuing, setIssuing] = useState(false);
+  const issueLock = useRef(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [issuedRecipients, setIssuedRecipients] = useState<string[]>([]);
+  const records: CertificateRecord[] = (resource.data?.items || []).map(
+    (item) => {
+      const state = certificateStatus(item);
+      return {
+        id: item.id,
+        userId:
+          item.mentee?.id || item.user?.id || item.user_id || item.mentee_id,
+        name: item.mentee?.name || item.user?.name || "—",
+        certificate: certificateTitle(item),
+        status: ["issued", "earned", "completed"].includes(state)
+          ? "Issued"
+          : [
+                "pending",
+                "requested",
+                "in_progress",
+                "pending_endorsement",
+              ].includes(state)
+            ? "Pending"
+            : state === "not_eligible"
+              ? "Not Eligible"
+              : "Unknown",
+        date: formatDate(item.issued_at || item.issue_date),
+        cohort: item.cohort?.name,
+        email: item.mentee?.email || item.user?.email,
+        certificateId: item.reference || item.certificate_number,
+        notes: item.description || item.dedication,
+      };
+    },
+  );
+
+  // =========================================================================
+  // ISSUE CERTIFICATE PAGE FORM STATE
+  // =========================================================================
+  const [selectedTemplate, setSelectedTemplate] = useState("Year Milestone");
   const templates = [
-    { title: "Year 1 Completion", issued: 82 },
-    { title: "Year 2 Completion", issued: 34 },
-    { title: "Year 3 Graduation", issued: 56 },
-    { title: "Leadership Excellence", issued: 28 },
-    { title: "Masterclass Completion", issued: 18 },
+    {
+      id: "Year Milestone",
+      title: "Year Milestone",
+      desc: "Marks the completion of a year on the path.",
+    },
+    {
+      id: "Leadership Excellence",
+      title: "Leadership Excellence",
+      desc: "For those who carried others while walking.",
+    },
+    {
+      id: "Community Impact",
+      title: "Community Impact",
+      desc: "For work that reached beyond the program.",
+    },
+    {
+      id: "Decade Completion",
+      title: "Decade Completion",
+      desc: "The final certificate of the ten-year journey.",
+    },
   ];
 
-  const dueGraduates = [
-    { name: "Sarah M.", goals: "8/8", attendance: "100%", date: "Mar 12, 2026" },
-    { name: "Amina K.", goals: "8/8", attendance: "94%", date: "Mar 14, 2026" },
-    { name: "Michael A.", goals: "8/8", attendance: "96%", date: "Mar 15, 2026" },
-    { name: "John D.", goals: "8/8", attendance: "90%", date: "Mar 18, 2026" },
+  const [recipients, setRecipients] = useState<RecipientOption[]>([]);
+
+  useEffect(() => {
+    if (accounts.data)
+      setRecipients((previous) =>
+        accounts.data!.map((user) => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          cohort: user.cohorts?.map((c) => c.name).join(", ") || "—",
+          activity: "—",
+          eligibility: "Review Needed",
+          selected: previous.some(
+            (item) => item.id === user.id && item.selected,
+          ),
+        })),
+      );
+  }, [accounts.data]);
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [recipientFilter, setRecipientFilter] = useState("All");
+
+  const [certTitle, setCertTitle] = useState("Year 3 Completion");
+
+  // Interactive calendar date state
+  const [issueDate, setIssueDate] = useState("");
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(8); // September (0-indexed)
+  const [calendarYear, setCalendarYear] = useState(2026);
+  const [selectedDay, setSelectedDay] = useState(20);
+  const calendarRef = useRef<HTMLDivElement>(null);
+
+  const [dedication, setDedication] = useState("");
+  const [signatory, setSignatory] = useState(
+    "Pamela Achebe · Program Director",
+  );
+  const [notifyByEmail, setNotifyByEmail] = useState(false);
+
+  const [recentlyIssued, setRecentlyIssued] = useState<RecentlyIssuedRecord[]>(
+    [],
+  );
+
+  const displayedRecentlyIssued: RecentlyIssuedRecord[] = [
+    ...recentlyIssued,
+    ...records
+      .filter(
+        (r) =>
+          (r.status === "Issued" || r.status === "Pending") &&
+          !recentlyIssued.some((ri) => String(ri.id) === String(r.id)),
+      )
+      .map((r) => ({
+        id: r.id,
+        recipient: r.name,
+        certificate: r.certificate,
+        issued: r.date,
+        status: (r.status === "Issued" ? "Delivered" : "Pending") as
+          | "Pending"
+          | "Delivered",
+      })),
   ];
 
-  const issuedCertificates = [
-    { name: "Sarah M.", cert: "Year 2 Completion", date: "Mar 12, 2026", status: "Downloaded", statusBg: "bg-[#333333] text-white" },
-    { name: "Amina K.", cert: "Year 2 Completion", date: "Mar 14, 2026", status: "Pending", statusBg: "bg-gray-100 text-gray-500" },
-    { name: "Michael A.", cert: "Year 2 Completion", date: "Mar 15, 2026", status: "Downloaded", statusBg: "bg-[#333333] text-white" },
-    { name: "John D.", cert: "Year 2 Completion", date: "Mar 18, 2026", status: "Issued", statusBg: "bg-gray-100 text-gray-700 border border-gray-200" },
-    { name: "John D.", cert: "Year 2 Completion", date: "Mar 18, 2026", status: "Revoked", statusBg: "bg-gray-100 text-gray-500" },
+  const [issueToast, setIssueToast] = useState<string | null>(null);
+
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
-  const bgTemplates = [
-    { id: "gold", name: "Classic Gold", desc: "Ornate gold border, formal" },
-    { id: "minimal", name: "Modern Minimal", desc: "Clean lines, sans-serif" },
-    { id: "navy", name: "Academic Navy", desc: "Navy & cream, university style" },
-    { id: "botanical", name: "Botanical", desc: "Leaf accents, soft tones" },
-    { id: "geometric", name: "Bold Geometric", desc: "Color blocks, modern" },
-    { id: "custom", name: "Custom Upload", desc: "Upload your own background" },
-  ];
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
-    <div className="space-y-8 pb-10">
-      {/* Header */}
-      <div className="flex justify-between items-start">
+  // Sync viewMode changes with header and persistent session
+  useEffect(() => {
+    const isDetail = viewMode !== "list";
+    if (typeof window !== "undefined") {
+      if (viewMode === "issue") {
+        sessionStorage.setItem("admin_cert_view", "issue");
+      } else if (viewMode === "profile") {
+        sessionStorage.setItem("admin_cert_view", "profile");
+      } else {
+        sessionStorage.removeItem("admin_cert_view");
+      }
+    }
+    window.dispatchEvent(
+      new CustomEvent("admin-certificate-view-change", {
+        detail: {
+          isDetail,
+          isIssuePage: viewMode === "issue",
+          selectedCertUser: selectedMentee,
+        },
+      }),
+    );
+  }, [viewMode, selectedMentee]);
+
+  // Click outside to dismiss calendar popover
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        calendarRef.current &&
+        !calendarRef.current.contains(e.target as Node)
+      ) {
+        setIsCalendarOpen(false);
+      }
+    };
+    if (isCalendarOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isCalendarOpen]);
+
+  // Listen to header action button event and back button event
+  useEffect(() => {
+    const handleOpenIssue = () => {
+      setIssuedRecipients([]);
+      setIssueError(null);
+      setIssueToast(null);
+      setSelectedMentee(null);
+      setViewMode("issue");
+    };
+
+    const handleBackToCertificates = () => {
+      setSelectedMentee(null);
+      setViewMode("list");
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("admin_cert_view");
+      }
+    };
+
+    window.addEventListener("open-issue-certificate-modal", handleOpenIssue);
+    window.addEventListener("admin-certificate-back", handleBackToCertificates);
+
+    return () => {
+      window.removeEventListener(
+        "open-issue-certificate-modal",
+        handleOpenIssue,
+      );
+      window.removeEventListener(
+        "admin-certificate-back",
+        handleBackToCertificates,
+      );
+    };
+  }, []);
+
+  // Open Detailed Mentee Profile
+  const handleOpenMenteeProfile = (cert: CertificateRecord) => {
+    setSelectedMentee(cert);
+    setViewMode("profile");
+    setActiveProfileTab("Overview");
+  };
+
+  // Toggle recipient selection
+  const handleToggleRecipient = (id: string | number) => {
+    if (issuing || issuedRecipients.length) return;
+    setRecipients((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, selected: !r.selected } : r)),
+    );
+  };
+
+  const handleSelectAllRecipients = () => {
+    if (issuing || issuedRecipients.length) return;
+    const allSelected = recipients.every((r) => r.selected);
+    setRecipients((prev) =>
+      prev.map((r) => ({ ...r, selected: !allSelected })),
+    );
+  };
+
+  const selectedRecipientCount = recipients.filter((r) => r.selected).length;
+  const primarySelectedRecipient =
+    recipients.find((r) => r.selected) || recipients[0];
+
+  // Calendar handlers
+  const handlePrevMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear((y) => y - 1);
+    } else {
+      setCalendarMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear((y) => y + 1);
+    } else {
+      setCalendarMonth((m) => m + 1);
+    }
+  };
+
+  const handleDaySelect = (day: number) => {
+    setSelectedDay(day);
+    setIssueDate(`${day}/${calendarMonth + 1}/${calendarYear}`);
+    setIsCalendarOpen(false);
+  };
+
+  const daysInCurrentMonth = new Date(
+    calendarYear,
+    calendarMonth + 1,
+    0,
+  ).getDate();
+  const firstDayOfWeek = new Date(calendarYear, calendarMonth, 1).getDay();
+
+  // Action: Issue Certificate from Step 4 Preview
+  const handleExecuteIssueCertificate = async () => {
+    if (!token || issueLock.current) return;
+    const selected = recipients.filter((recipient) => recipient.selected);
+    if (!selected.length || !certTitle.trim()) {
+      setIssueError(
+        "Select at least one recipient and enter a certificate title.",
+      );
+      return;
+    }
+    issueLock.current = true;
+    setIssuing(true);
+    setIssueError(null);
+    setIssueToast(null);
+    const completed = [...issuedRecipients];
+    let count = 0;
+    try {
+      for (const recipient of selected) {
+        const id = String(recipient.id);
+        if (completed.includes(id)) continue;
+        const saved = await issueCertificate(token, {
+          user_id: id,
+          title: certTitle.trim(),
+          issue_date: issueDate.trim() || undefined,
+          dedication: dedication.trim() || undefined,
+          signatory: signatory.trim() || undefined,
+          notify_by_email: notifyByEmail,
+        });
+        completed.push(id);
+        setIssuedRecipients([...completed]);
+        count++;
+
+        // Dispatch certificate notification email if requested and recipient has an email address
+        if (notifyByEmail && recipient.email && token) {
+          fetch("/api/certificates/notify", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              email: recipient.email,
+              menteeName: recipient.name,
+              certificateTitle: certTitle.trim(),
+              certificateId: saved.id,
+            }),
+          }).catch((err) => console.warn("Failed to dispatch certificate email:", err));
+        }
+
+        setRecentlyIssued((previous) => [
+          ...previous,
+          {
+            id: saved.id,
+            recipient: recipient.name,
+            certificate: certificateTitle(saved),
+            issued: formatDate(saved.issued_at || saved.issue_date),
+            status: "Pending",
+          },
+        ]);
+      }
+      setIssueToast(`${count} certificate${count === 1 ? "" : "s"} issued.`);
+    } catch (error) {
+      setIssueError(
+        `${completed.length ? `${completed.length} recipient(s) already completed. ` : ""}${errorMessage(error)}`,
+      );
+    } finally {
+      issueLock.current = false;
+      setIssuing(false);
+      resource.reload();
+    }
+  };
+
+  // Dynamic stats for main table view
+  const issuedCount = records.filter((r) => r.status === "Issued").length;
+  const pendingCount = records.filter((r) => r.status === "Pending").length;
+  const notEligibleCount = records.filter(
+    (r) => r.status === "Not Eligible",
+  ).length;
+
+  // =========================================================================
+  // VIEW: ISSUE CERTIFICATE PAGE (FULL AVAILABLE WIDTH, NO BOLD HEADINGS, INTERACTIVE CALENDAR)
+  // =========================================================================
+  if (viewMode === "issue") {
+    return (
+      <div className="w-full max-w-full pb-14 space-y-7 font-sans animate-in fade-in duration-200">
+        <ApiState {...resource} onRetry={resource.reload} />
+        <ApiState {...accounts} onRetry={accounts.reload} />
+        <FormError message={issueError} />
+        {/* Toast confirmation */}
+        {issueToast && (
+          <div className="fixed top-6 right-6 z-[999999] bg-[#111928] text-white px-5 py-3 rounded-[10px] text-[13.5px] font-medium shadow-xl flex items-center gap-2.5 animate-in slide-in-from-top-3">
+            <Check className="w-4 h-4 text-[#609974]" />
+            <span>{issueToast}</span>
+          </div>
+        )}
+
+        {/* Page Heading & Subtitle - softened font weights */}
         <div>
-          <h1 className="text-[24px] font-bold text-[#1F2937] font-dm-sans mb-1">
-            Certificate Management
+          <h1 className="text-[20px] md:text-[22px] font-medium text-[#111928] font-sans tracking-tight">
+            Mark a moment on the path
           </h1>
-          <p className="text-[14px] text-[#6B7280] font-rubik">
-            Create templates, issue & track digital certificates per cohort
+          <p className="text-[13px] md:text-[13.5px] font-normal text-[#6B7280] font-sans mt-1">
+            Certificates are issued sparingly. They anchor a decade in something
+            you can hold.
           </p>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={() => setActiveModal("bulk_issue")}
-            className="px-5 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors"
+
+        {/* STEP 1: Choose a template */}
+        <div className="space-y-3 w-full">
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-[#EBF2EB] text-[#486B52] text-[11px] font-medium flex items-center justify-center shrink-0">
+              1
+            </span>
+            <h2 className="text-[13.5px] md:text-[14px] font-medium text-[#111928] font-sans">
+              Choose a template
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+            {templates.map((tpl) => {
+              const isSelected = selectedTemplate === tpl.id;
+              return (
+                <div
+                  key={tpl.id}
+                  onClick={() => {
+                    if (issuing || issuedRecipients.length) return;
+                    setSelectedTemplate(tpl.id);
+                    setCertTitle(
+                      tpl.id === "Year Milestone"
+                        ? "Year 3 Completion"
+                        : tpl.title,
+                    );
+                  }}
+                  className={`rounded-[14px] p-5 relative cursor-pointer transition-all ${
+                    isSelected
+                      ? "border-2 border-[#DB911E] bg-white shadow-sm"
+                      : "border border-[#E5E7EB] hover:border-gray-300 bg-white"
+                  }`}
+                >
+                  {/* Selected check circle */}
+                  {isSelected && (
+                    <div className="w-4 h-4 rounded-full bg-[#DB911E] text-white flex items-center justify-center text-[10px] absolute top-4 right-4">
+                      <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                    </div>
+                  )}
+
+                  {/* Icon */}
+                  <Award
+                    className={`w-5 h-5 ${isSelected ? "text-[#DB911E]" : "text-gray-400"}`}
+                    strokeWidth={1.8}
+                  />
+
+                  {/* Title & Desc */}
+                  <h3 className="text-[13.5px] font-medium text-[#111928] font-sans mt-3.5">
+                    {tpl.title}
+                  </h3>
+                  <p className="text-[12px] font-normal text-[#6B7280] font-sans mt-1 leading-relaxed">
+                    {tpl.desc}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* STEPS 2 & 3: Two-Column Row (Select recipients & Certificate details) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch w-full">
+          {/* STEP 2: Select recipients */}
+          <div className="flex flex-col h-full space-y-3 w-full">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-[#EBF2EB] text-[#486B52] text-[11px] font-medium flex items-center justify-center shrink-0">
+                2
+              </span>
+              <h2 className="text-[13.5px] md:text-[14px] font-medium text-[#111928] font-sans">
+                Select recipients
+              </h2>
+            </div>
+
+            <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex-1 flex flex-col justify-between w-full">
+              <div>
+                {/* Search & Filter Bar */}
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={recipientSearch}
+                      onChange={(e) => setRecipientSearch(e.target.value)}
+                      placeholder="Search participants..."
+                      className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E5E7EB] rounded-full text-[12.5px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#DB911E]"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="border border-[#E5E7EB] rounded-full px-3 py-1.5 text-[12px] text-gray-700 bg-white flex items-center gap-1 hover:bg-gray-50 transition-colors"
+                  >
+                    <span>All</span>
+                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSelectAllRecipients}
+                    className="border border-[#E5E7EB] rounded-full px-3 py-1.5 text-[12px] text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                  >
+                    Select All
+                  </button>
+                </div>
+
+                {/* Recipient Rows */}
+                <div className="divide-y divide-[#F3F4F6]">
+                  {recipients
+                    .filter((r) =>
+                      r.name
+                        .toLowerCase()
+                        .includes(recipientSearch.toLowerCase()),
+                    )
+                    .map((r) => (
+                      <div
+                        key={r.id}
+                        onClick={() => handleToggleRecipient(r.id)}
+                        className="py-3.5 flex items-center justify-between cursor-pointer hover:bg-gray-50/50 px-1 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          {/* Circular Checkbox */}
+                          <div
+                            className={`w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+                              r.selected
+                                ? "bg-[#5E9472] text-white"
+                                : "border border-gray-300 bg-white"
+                            }`}
+                          >
+                            {r.selected && (
+                              <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            )}
+                          </div>
+
+                          <div>
+                            <p className="text-[13.5px] font-medium text-[#111928] font-sans">
+                              {r.name}
+                            </p>
+                            <p className="text-[12px] font-normal text-[#6B7280] font-sans">
+                              Cohort {r.cohort} · {r.activity}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Eligibility Badge */}
+                        <div>
+                          {r.eligibility === "Eligible" && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#EEF3ED] text-[#486B52]">
+                              Eligible
+                            </span>
+                          )}
+                          {r.eligibility === "Not Eligible" && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#F3F4F6] text-[#6B7280]">
+                              Not Eligible
+                            </span>
+                          )}
+                          {r.eligibility === "Review Needed" && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#FAF3EA] text-[#9A6D29]">
+                              Review Needed
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Bottom selection counter */}
+              <div className="pt-3 border-t border-[#F3F4F6] mt-4 flex items-center gap-1.5 text-[12.5px] font-normal text-[#6B7280]">
+                <Users className="w-3.5 h-3.5 text-gray-500" />
+                <span>{selectedRecipientCount} selected</span>
+              </div>
+            </div>
+          </div>
+
+          {/* STEP 3: Certificate details */}
+          <div className="flex flex-col h-full space-y-3 w-full">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-[#EBF2EB] text-[#486B52] text-[11px] font-medium flex items-center justify-center shrink-0">
+                3
+              </span>
+              <h2 className="text-[13.5px] md:text-[14px] font-medium text-[#111928] font-sans">
+                Certificate details
+              </h2>
+            </div>
+
+            <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex-1 flex flex-col justify-between space-y-4 w-full">
+              <div className="space-y-3.5">
+                {/* Certificate Title */}
+                <div>
+                  <label
+                    htmlFor="field-ppdashboardadmincertificatespagetsx-1"
+                    className="block text-[12.5px] font-normal text-[#4B5563] mb-1 font-sans"
+                  >
+                    Certificate Title
+                  </label>
+                  <input
+                    id="field-ppdashboardadmincertificatespagetsx-1"
+                    type="text"
+                    disabled={issuing || issuedRecipients.length > 0}
+                    value={certTitle}
+                    onChange={(e) => setCertTitle(e.target.value)}
+                    className="w-full bg-[#FAF9F6] border border-[#E5E7EB] rounded-[8px] px-3.5 py-2 text-[13.5px] text-[#111928] font-sans focus:outline-none focus:border-[#DB911E]"
+                  />
+                </div>
+
+                {/* Issue Date with Interactive Clickable Calendar */}
+                <div className="relative" ref={calendarRef}>
+                  <label
+                    htmlFor="field-ppdashboardadmincertificatespagetsx-2"
+                    className="block text-[12.5px] font-normal text-[#4B5563] mb-1 font-sans"
+                  >
+                    Issue Date
+                  </label>
+                  <div
+                    onClick={() => setIsCalendarOpen((prev) => !prev)}
+                    className="relative cursor-pointer"
+                  >
+                    <input
+                      id="field-ppdashboardadmincertificatespagetsx-2"
+                      type="text"
+                      readOnly
+                      placeholder="Select issue date"
+                      value={issueDate}
+                      className="w-full bg-[#FAF9F6] border border-[#E5E7EB] rounded-[8px] px-3.5 py-2 pr-9 text-[13.5px] text-[#111928] font-sans cursor-pointer focus:outline-none focus:border-[#DB911E]"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Toggle calendar"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsCalendarOpen((prev) => !prev);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-amber-600 hover:text-amber-700 transition-colors cursor-pointer"
+                    >
+                      <Calendar className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Interactive Calendar Dropdown Popover */}
+                  {isCalendarOpen && (
+                    <div className="absolute left-0 top-full mt-2 z-50 bg-white border border-[#E5E7EB] rounded-[14px] p-4 shadow-xl w-[280px] font-sans animate-in fade-in zoom-in-95 duration-150">
+                      {/* Month & Year Navigation Header */}
+                      <div className="flex items-center justify-between mb-3 px-1">
+                        <button
+                          type="button"
+                          onClick={handlePrevMonth}
+                          className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-[13px] font-medium text-[#111928]">
+                          {monthNames[calendarMonth]} {calendarYear}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleNextMonth}
+                          className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Day of Week Labels */}
+                      <div className="grid grid-cols-7 gap-1 text-center text-[10.5px] font-medium text-[#9CA3AF] mb-1">
+                        <span>Su</span>
+                        <span>Mo</span>
+                        <span>Tu</span>
+                        <span>We</span>
+                        <span>Th</span>
+                        <span>Fr</span>
+                        <span>Sa</span>
+                      </div>
+
+                      {/* Days Grid */}
+                      <div className="grid grid-cols-7 gap-1 text-center">
+                        {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                          <div key={`empty-${i}`} className="w-7 h-7" />
+                        ))}
+                        {Array.from({ length: daysInCurrentMonth }).map(
+                          (_, i) => {
+                            const dayNum = i + 1;
+                            const isDaySelected = dayNum === selectedDay;
+                            return (
+                              <button
+                                key={dayNum}
+                                type="button"
+                                onClick={() => handleDaySelect(dayNum)}
+                                className={`w-7 h-7 text-[12px] rounded-full flex items-center justify-center font-sans transition-colors cursor-pointer ${
+                                  isDaySelected
+                                    ? "bg-[#DB911E] text-white font-medium shadow-sm"
+                                    : "text-[#374151] hover:bg-[#FAF3EA] hover:text-[#9A6D29]"
+                                }`}
+                              >
+                                {dayNum}
+                              </button>
+                            );
+                          },
+                        )}
+                      </div>
+
+                      {/* Calendar Footer Actions */}
+                      <div className="flex items-center justify-between pt-3 mt-2 border-t border-gray-100 text-[11.5px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const now = new Date();
+                            setCalendarMonth(now.getMonth());
+                            setCalendarYear(now.getFullYear());
+                            handleDaySelect(now.getDate());
+                          }}
+                          className="text-[#DB911E] hover:text-[#BA7815] font-medium transition-colors"
+                        >
+                          Today
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsCalendarOpen(false)}
+                          className="text-gray-500 hover:text-gray-800 transition-colors"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Dedication */}
+                <div>
+                  <label
+                    htmlFor="field-ppdashboardadmincertificatespagetsx-3"
+                    className="block text-[12.5px] font-normal text-[#4B5563] mb-1 font-sans"
+                  >
+                    Dedication
+                  </label>
+                  <textarea
+                    id="field-ppdashboardadmincertificatespagetsx-3"
+                    rows={2}
+                    value={dedication}
+                    onChange={(e) => setDedication(e.target.value)}
+                    placeholder="Enter dedication message..."
+                    className="w-full bg-[#FAF9F6] border border-[#E5E7EB] rounded-[8px] p-2.5 text-[13px] text-[#111928] font-sans focus:outline-none focus:border-[#DB911E] resize-none"
+                  />
+                </div>
+
+                {/* Signatory */}
+                <div>
+                  <label
+                    htmlFor="field-ppdashboardadmincertificatespagetsx-4"
+                    className="block text-[12.5px] font-normal text-[#4B5563] mb-1 font-sans"
+                  >
+                    Signatory
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="field-ppdashboardadmincertificatespagetsx-4"
+                      value={signatory}
+                      onChange={(e) => setSignatory(e.target.value)}
+                      className="w-full bg-[#FAF9F6] border border-[#E5E7EB] rounded-[8px] px-3.5 py-2 pr-9 text-[13px] text-[#111928] font-sans appearance-none focus:outline-none focus:border-[#DB911E]"
+                    >
+                      <option value="Pamela Achebe · Program Director">
+                        Pamela Achebe · Program Director
+                      </option>
+                      <option value="Israel Ayiku · Executive Lead">
+                        Israel Ayiku · Executive Lead
+                      </option>
+                      <option value="Board of Directors">
+                        Board of Directors
+                      </option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Criteria checked box */}
+                <div className="bg-[#FAF9F6]/80 border border-[#E5E7EB] rounded-[12px] p-4 space-y-2">
+                  <h4 className="text-[12px] font-medium text-[#111928] font-sans">
+                    Criteria checked
+                  </h4>
+                  <div className="flex items-center gap-2 text-[12px] font-normal text-[#4B5563]">
+                    <Check className="w-3.5 h-3.5 text-[#486B52] stroke-[2.5]" />
+                    <span>12+ sessions attended</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[12px] font-normal text-[#4B5563]">
+                    <Check className="w-3.5 h-3.5 text-[#486B52] stroke-[2.5]" />
+                    <span>8+ reflections submitted</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[12px] font-normal text-[#4B5563]">
+                    <Check className="w-3.5 h-3.5 text-[#486B52] stroke-[2.5]" />
+                    <span>Year goals reviewed with mentor</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notify recipients by email switch toggle */}
+              <div className="flex items-center justify-between pt-3 border-t border-[#F3F4F6]">
+                <div>
+                  <p className="text-[13px] font-normal text-[#111928] font-sans">
+                    Notify recipients by email
+                  </p>
+                  <p className="text-[11.5px] font-normal text-[#6B7280] font-sans">
+                    Sends a link to download the PDF.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNotifyByEmail(!notifyByEmail)}
+                  className={`w-10 h-5 flex items-center rounded-full p-0.5 cursor-pointer transition-colors ${
+                    notifyByEmail ? "bg-[#DB911E]" : "bg-gray-300"
+                  }`}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                      notifyByEmail ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* STEP 4: Preview */}
+        <div className="space-y-3 w-full">
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-[#EBF2EB] text-[#486B52] text-[11px] font-medium flex items-center justify-center shrink-0">
+              4
+            </span>
+            <h2 className="text-[13.5px] md:text-[14px] font-medium text-[#111928] font-sans">
+              Preview
+            </h2>
+          </div>
+
+          <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 sm:p-8 shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-6 w-full">
+            {/* The Certificate Preview Canvas */}
+            <div className="bg-[#FAF9F6] border border-[#EBE7DF] rounded-[14px] p-8 sm:p-14 text-center relative max-w-3xl mx-auto shadow-inner">
+              {/* Ribbon Icon */}
+              <div className="flex justify-center mb-3">
+                <Award className="w-9 h-9 text-[#609974]" strokeWidth={1.7} />
+              </div>
+
+              {/* Program header */}
+              <p className="text-[13px] font-normal text-[#6B7280] font-sans tracking-wide">
+                Vision2535
+              </p>
+
+              {/* Certificate of Year 3 Completion */}
+              <h3 className="text-[20px] sm:text-[23px] font-medium text-[#111928] font-sans mt-2">
+                Certificate of {certTitle}
+              </h3>
+
+              {/* Awarded to */}
+              <p className="text-[12px] font-normal text-[#6B7280] font-sans mt-5">
+                Awarded to
+              </p>
+
+              {/* Recipient Name */}
+              <h4 className="text-[17px] sm:text-[19px] font-medium text-[#111928] font-sans mt-1">
+                {primarySelectedRecipient
+                  ? primarySelectedRecipient.name
+                  : "Select a recipient"}
+              </h4>
+
+              {/* Dedication Quote */}
+              <p className="text-[13px] sm:text-[13.5px] font-normal text-[#4B5563] italic mt-3 max-w-lg mx-auto font-serif leading-relaxed">
+                "{dedication}"
+              </p>
+
+              {/* Signatory & Date Footer */}
+              <div className="mt-10 pt-4 border-t border-[#E5E7EB] flex flex-col sm:flex-row items-center justify-between gap-2 text-[12px] font-normal text-[#4B5563] px-2 font-sans">
+                <span>{signatory}</span>
+                <span>
+                  {selectedDay} {monthNames[calendarMonth]} {calendarYear}
+                </span>
+              </div>
+            </div>
+
+            {/* Action Buttons on the bottom right */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.setItem(
+                      "admin_certificate_draft",
+                      JSON.stringify({
+                        selectedTemplate,
+                        certTitle,
+                        issueDate,
+                        dedication,
+                        signatory,
+                        notifyByEmail,
+                      }),
+                    );
+                  } catch {}
+                  setIssueToast("Certificate draft saved.");
+                }}
+                className="border border-[#E5E7EB] hover:bg-gray-50 text-[#374151] px-4 py-2 rounded-[8px] text-[13px] font-medium flex items-center gap-2 cursor-pointer transition-colors font-sans"
+              >
+                <FileText className="w-4 h-4 text-gray-500" />
+                <span>Save Draft</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExecuteIssueCertificate}
+                disabled={
+                  issuing || (issuedRecipients.length > 0 && !issueError)
+                }
+                className="bg-[#DB911E] hover:bg-[#BA7815] disabled:opacity-60 text-white px-5 py-2 rounded-[8px] text-[13px] font-medium flex items-center gap-2 shadow-sm cursor-pointer transition-colors font-sans"
+              >
+                {issuing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                <span>{issuing ? "Issuing..." : "Issue Certificate"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* STEP 5: Recently issued */}
+        <div className="space-y-3 w-full">
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-[#EBF2EB] text-[#486B52] text-[11px] font-medium flex items-center justify-center shrink-0">
+              5
+            </span>
+            <h2 className="text-[13.5px] md:text-[14px] font-medium text-[#111928] font-sans">
+              Recently issued
+            </h2>
+          </div>
+
+          <div className="bg-white border border-[#E5E7EB] rounded-[16px] overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)] w-full">
+            <table className="w-full text-left border-collapse min-w-[600px]">
+              <thead>
+                <tr className="bg-[#F6F2EB] text-[12.5px] font-normal text-[#4B5563]">
+                  <th className="py-3.5 px-6 font-normal font-sans">
+                    Recipient
+                  </th>
+                  <th className="py-3.5 px-6 font-normal font-sans">
+                    Certificate
+                  </th>
+                  <th className="py-3.5 px-6 font-normal font-sans">Issued</th>
+                  <th className="py-3.5 px-6 font-normal font-sans">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F3F4F6] text-[13.5px]">
+                {displayedRecentlyIssued.map((item) => (
+                  <tr
+                    key={item.id}
+                    className="hover:bg-[#FAF9F6]/50 transition-colors"
+                  >
+                    <td className="py-4 px-6 text-[#111928] font-normal font-sans">
+                      {item.recipient}
+                    </td>
+                    <td className="py-4 px-6 text-[#374151] font-normal font-sans">
+                      {item.certificate}
+                    </td>
+                    <td className="py-4 px-6 text-[#374151] font-normal font-sans">
+                      {item.issued}
+                    </td>
+                    <td className="py-4 px-6">
+                      {item.status === "Pending" ? (
+                        <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-medium bg-[#FAF3EA] text-[#9A6D29]">
+                          Pending
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-medium bg-[#EEF3ED] text-[#486B52]">
+                          Delivered
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // VIEW: DETAILED MENTEE PROFILE VIEW (WHEN ADMIN CLICKS "PROFILE")
+  // =========================================================================
+  if (viewMode === "profile" && selectedMentee) {
+    return (
+      <div className="w-full max-w-full pb-10 space-y-6 font-sans animate-in fade-in duration-200">
+        <ApiState {...resource} onRetry={resource.reload} />
+        <ApiState {...accounts} onRetry={accounts.reload} />
+        <FormError message={issueError} />
+        {/* Profile Header Hero Card */}
+        <div className="bg-white rounded-[16px] border border-[#E5E7EB] overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          {/* Top Sage / Cream Gradient Banner */}
+          <div className="h-[140px] md:h-[155px] bg-gradient-to-r from-[#EDE8D0] via-[#CDE0C9] to-[#6B9E78] w-full" />
+
+          {/* Profile Info Area */}
+          <div className="relative pt-[56px] px-6 sm:px-8 pb-7">
+            {/* Avatar overlapping banner */}
+            <div className="absolute -top-12 left-6 sm:left-8">
+              <img
+                src={selectedMentee.avatarUrl || "/icons/user-placeholder.svg"}
+                alt={selectedMentee.name}
+                className="w-[84px] h-[84px] rounded-full border-4 border-white object-cover bg-white shadow-sm"
+              />
+            </div>
+
+            {/* Top row: Name, Cohort & Book Session button */}
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[20px] md:text-[22px] font-medium text-[#111928] font-sans">
+                  {selectedMentee.name}
+                </h2>
+                <p className="text-[13px] font-normal text-[#6B7280] font-sans mt-0.5">
+                  {selectedMentee.cohort ||
+                    participant.data?.user.cohorts
+                      ?.map((c) => c.name)
+                      .join(", ") ||
+                    "—"}
+                </p>
+                <p className="text-[13.5px] md:text-[14px] font-normal text-[#374151] font-sans mt-3.5 max-w-2xl leading-relaxed">
+                  {participant.data?.user.bio || selectedMentee.notes || ""}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={!selectedMentee.userId}
+                onClick={() => setIsBookSessionOpen(true)}
+                className="px-4 py-2 bg-[#DB911E] hover:bg-[#BA7815] text-white rounded-[8px] text-[13px] font-medium font-sans transition-colors flex items-center gap-2 shadow-sm shrink-0 cursor-pointer self-start"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Book Session</span>
+              </button>
+            </div>
+
+            {/* Meta details & Tag pills row */}
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-6 pt-2 border-t border-[#F3F4F6]">
+              <div className="flex flex-wrap items-center gap-5 sm:gap-6 text-[12.5px] md:text-[13px] text-[#4B5563]">
+                <div className="flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-gray-400" />
+                  <span>{selectedMentee.email || "—"}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                  <span>{selectedMentee.location || "—"}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-gray-400" />
+                  <span>Last session {selectedMentee.lastSession || "—"}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {participant.data?.goals.map((goal) => (
+                  <span
+                    key={goal.id}
+                    className="px-3 py-1 bg-[#F3F4F6] text-[#6B7280] rounded-full text-[11px] font-medium font-sans"
+                  >
+                    {goal.category}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Metrics Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
+          <div className="bg-white border border-[#E5E7EB] rounded-[14px] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+            <div className="text-[24px] md:text-[26px] font-normal text-[#111928] leading-none mb-1.5 font-sans">
+              {participant.data?.sessions.length ?? "—"}
+            </div>
+            <div className="text-[13px] font-normal text-[#6B7280] font-sans">
+              Sessions
+            </div>
+          </div>
+
+          <div className="bg-white border border-[#E5E7EB] rounded-[14px] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+            <div className="text-[24px] md:text-[26px] font-normal text-[#111928] leading-none mb-1.5 font-sans">
+              {reflections.data?.length ?? "—"}
+            </div>
+            <div className="text-[13px] font-normal text-[#6B7280] font-sans">
+              Reflections
+            </div>
+          </div>
+
+          <div className="bg-white border border-[#E5E7EB] rounded-[14px] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+            <div className="text-[24px] md:text-[26px] font-normal text-[#111928] leading-none mb-1.5 font-sans">
+              {participant.data
+                ? `${participant.data.goals.filter((g) => ["completed", "done"].includes(g.status)).length}/${participant.data.goals.length}`
+                : "—"}
+            </div>
+            <div className="text-[13px] font-normal text-[#6B7280] font-sans">
+              Goals done
+            </div>
+          </div>
+
+          <div className="bg-white border border-[#E5E7EB] rounded-[14px] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+            <div className="text-[24px] md:text-[26px] font-normal text-[#111928] leading-none mb-1.5 font-sans">
+              {
+                records.filter(
+                  (r) => r.userId && r.userId === selectedMentee.userId,
+                ).length
+              }
+            </div>
+            <div className="text-[13px] font-normal text-[#6B7280] font-sans">
+              Certificates
+            </div>
+          </div>
+        </div>
+
+        {/* Filter Tabs Bar (pill container) */}
+        <div className="bg-white border border-[#E5E7EB] rounded-full p-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex items-center gap-1.5 overflow-x-auto w-full">
+          <button
+            type="button"
+            onClick={() => setActiveProfileTab("Overview")}
+            className={`px-4 py-1.5 rounded-full text-[12px] font-medium font-sans transition-colors cursor-pointer shrink-0 ${
+              activeProfileTab === "Overview"
+                ? "bg-[#111928] text-white"
+                : "text-[#6B7280] hover:text-[#111928]"
+            }`}
           >
-            Bulk Issue
+            Overview
           </button>
-          <button 
-            onClick={() => setActiveModal("create_template")}
-            className="px-5 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors"
+
+          <button
+            type="button"
+            onClick={() => setActiveProfileTab("Goals")}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium font-sans transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeProfileTab === "Goals"
+                ? "bg-[#111928] text-white"
+                : "text-[#6B7280] hover:text-[#111928]"
+            }`}
           >
-            Create Certificate
+            <span>Goals</span>
+            <span
+              className={
+                activeProfileTab === "Goals"
+                  ? "text-white/70 text-[11px]"
+                  : "text-[#9CA3AF] text-[11px]"
+              }
+            >
+              {participant.data?.goals.length ?? "—"}
+            </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveProfileTab("Sessions")}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium font-sans transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeProfileTab === "Sessions"
+                ? "bg-[#111928] text-white"
+                : "text-[#6B7280] hover:text-[#111928]"
+            }`}
+          >
+            <span>Sessions</span>
+            <span
+              className={
+                activeProfileTab === "Sessions"
+                  ? "text-white/70 text-[11px]"
+                  : "text-[#9CA3AF] text-[11px]"
+              }
+            >
+              {participant.data?.sessions.length ?? "—"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveProfileTab("Reflections")}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium font-sans transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeProfileTab === "Reflections"
+                ? "bg-[#111928] text-white"
+                : "text-[#6B7280] hover:text-[#111928]"
+            }`}
+          >
+            <span>Reflections</span>
+            <span
+              className={
+                activeProfileTab === "Reflections"
+                  ? "text-white/70 text-[11px]"
+                  : "text-[#9CA3AF] text-[11px]"
+              }
+            >
+              {reflections.data?.length ?? "—"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveProfileTab("Certificates")}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium font-sans transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeProfileTab === "Certificates"
+                ? "bg-[#111928] text-white"
+                : "text-[#6B7280] hover:text-[#111928]"
+            }`}
+          >
+            <span>Certificates</span>
+            <span
+              className={
+                activeProfileTab === "Certificates"
+                  ? "text-white/70 text-[11px]"
+                  : "text-[#9CA3AF] text-[11px]"
+              }
+            >
+              {
+                records.filter(
+                  (r) => r.userId && r.userId === selectedMentee.userId,
+                ).length
+              }
+            </span>
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <ApiState {...participant} onRetry={participant.reload} />
+        {activeProfileTab === "Overview" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+            <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+              <h3 className="text-[16px] font-medium text-[#111928] mb-4">
+                Goals
+              </h3>
+              <div className="space-y-4">
+                {participant.data?.goals.map((goal) => (
+                  <div
+                    key={goal.id}
+                    className="border border-[#E5E7EB] rounded-[12px] p-4"
+                  >
+                    <h4 className="text-sm font-medium">{goal.title}</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {goal.description}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">{goal.status}</p>
+                  </div>
+                ))}
+                {participant.data && !participant.data.goals.length && (
+                  <p className="text-sm text-gray-500">No goals found.</p>
+                )}
+              </div>
+            </div>
+            <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+              <h3 className="text-[16px] font-medium text-[#111928] mb-4">
+                Achievements
+              </h3>
+              {records
+                .filter(
+                  (r) =>
+                    r.userId &&
+                    r.userId === selectedMentee.userId &&
+                    r.status === "Issued",
+                )
+                .map((r) => (
+                  <div
+                    key={r.id}
+                    className="border border-[#E5E7EB] rounded-[12px] p-4 flex gap-3.5 mb-3"
+                  >
+                    <Trophy className="w-4 h-4 text-[#DB911E]" />
+                    <div>
+                      <h4 className="text-sm font-medium">{r.certificate}</h4>
+                      <p className="text-xs text-gray-500 mt-1">{r.date}</p>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+        {activeProfileTab === "Goals" && (
+          <div className="space-y-3">
+            {participant.data?.goals.map((goal) => (
+              <div
+                key={goal.id}
+                className="bg-white border border-gray-200 rounded-xl p-5"
+              >
+                <h3 className="font-medium">{goal.title}</h3>
+                <p className="text-sm text-gray-500">{goal.description}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {activeProfileTab === "Sessions" && (
+          <div className="space-y-3">
+            {participant.data?.sessions.map((session) => (
+              <div
+                key={session.id}
+                className="bg-white border border-gray-200 rounded-xl p-5"
+              >
+                <h3 className="font-medium">{session.title}</h3>
+                <p className="text-sm text-gray-500">
+                  {formatDate(session.sessionDate)} · {session.status}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        {activeProfileTab === "Reflections" && (
+          <>
+            <ApiState {...reflections} onRetry={reflections.reload} />
+            {reflections.data?.map((reflection) => (
+              <div
+                key={reflection.id}
+                className="bg-white border border-gray-200 rounded-xl p-5"
+              >
+                <p className="text-sm text-gray-600">{reflection.content}</p>
+              </div>
+            ))}
+          </>
+        )}
+        {activeProfileTab === "Certificates" && (
+          <div className="space-y-3">
+            {records
+              .filter((r) => r.userId && r.userId === selectedMentee.userId)
+              .map((r) => (
+                <div
+                  key={r.id}
+                  className="bg-white border border-gray-200 rounded-xl p-5"
+                >
+                  <h3 className="font-medium">{r.certificate}</h3>
+                  <p className="text-sm text-gray-500">
+                    {r.status} · {r.date}
+                  </p>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* Book Session Modal */}
+        <BookSessionModal
+          isOpen={isBookSessionOpen}
+          onClose={() => setIsBookSessionOpen(false)}
+          title={`Book Session with ${selectedMentee.name}`}
+          preselectedMentee={selectedMentee.userId}
+        />
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // VIEW: MAIN CERTIFICATES LIST VIEW (DEFAULT VIEW)
+  // =========================================================================
+  return (
+    <div className="space-y-6 w-full max-w-full font-sans animate-in fade-in duration-200">
+      <ApiState {...resource} onRetry={resource.reload} />
+      {/* 3 Top Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 md:gap-6 w-full">
+        {/* Card 1: Issued */}
+        <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-shadow hover:shadow-sm">
+          <p className="text-[28px] md:text-[32px] font-normal text-[#111928] leading-none mb-2 font-sans">
+            {issuedCount}
+          </p>
+          <p className="text-[13px] font-normal text-[#6B7280] font-sans">
+            Issued
+          </p>
+        </div>
+
+        {/* Card 2: Pending endorsement */}
+        <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-shadow hover:shadow-sm">
+          <p className="text-[28px] md:text-[32px] font-normal text-[#111928] leading-none mb-2 font-sans">
+            {pendingCount}
+          </p>
+          <p className="text-[13px] font-normal text-[#6B7280] font-sans">
+            Pending endorsement
+          </p>
+        </div>
+
+        {/* Card 3: Not eligible */}
+        <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-shadow hover:shadow-sm">
+          <p className="text-[28px] md:text-[32px] font-normal text-[#111928] leading-none mb-2 font-sans">
+            {notEligibleCount}
+          </p>
+          <p className="text-[13px] font-normal text-[#6B7280] font-sans">
+            Not eligible
+          </p>
         </div>
       </div>
 
-      {/* Top Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-        {[
-          { value: "5", label: "Templates" },
-          { value: "214", label: "Certificates Issued" },
-          { value: "14", label: "Pending Issuance" },
-          { value: "196", label: "Certificates Downloaded" },
-        ].map((stat, i) => (
-          <div key={i} className="bg-white rounded-[12px] p-6 text-center shadow-[0px_2px_8px_rgba(0,0,0,0.04)]">
-            <p className="text-[28px] font-bold text-[#1F2937] font-dm-sans mb-2 leading-none">
-              {stat.value}
-            </p>
-            <p className="text-[12px] font-medium text-[#4B5563] font-dm-sans leading-tight">
-              {stat.label}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {/* Certificate Templates */}
-      <div className="bg-white border border-gray-100 rounded-[16px] p-8 shadow-[0px_2px_8px_rgba(0,0,0,0.04)]">
-        <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans mb-6 border-b border-gray-100 pb-4">
-          Certificate Templates
+      {/* Main Certificate Status Card */}
+      <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 sm:p-7 shadow-[0_1px_3px_rgba(0,0,0,0.02)] w-full">
+        <h2 className="text-[15px] sm:text-[16px] font-medium text-[#111928] font-sans mb-5">
+          Certificate Status
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {templates.map((tpl, i) => (
-            <div key={i} className="border border-gray-200 rounded-[12px] p-5">
-              <div className="w-full h-[140px] bg-[#E5E7EB] rounded-[8px] flex flex-col items-center justify-center text-[#9CA3AF] mb-5">
-                <ImageIcon size={24} className="mb-2" />
-                <span className="text-[12px] font-medium">Certificate Preview</span>
+
+        {/* Mobile Certificate Cards (Below md) */}
+        <div className="md:hidden space-y-3">
+          {!resource.loading && !resource.error && records.length === 0 && (
+            <div className="py-10 text-center text-sm text-gray-500 font-sans border border-gray-100 rounded-[12px]">
+              No certificate records in the database yet.
+            </div>
+          )}
+          {records.map((cert) => (
+            <div
+              key={cert.id}
+              onClick={() => handleOpenMenteeProfile(cert)}
+              className="border border-[#E5E7EB] rounded-[14px] p-4 bg-white space-y-2.5 active:bg-gray-50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-medium text-[#111928] font-sans truncate">
+                    {cert.name}
+                  </p>
+                  <p className="text-[12.5px] text-[#374151] font-sans mt-0.5">
+                    {cert.certificate}
+                  </p>
+                </div>
+                <div className="shrink-0">
+                  {cert.status === "Pending" && (
+                    <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#FAF3EA] text-[#9A6D29]">
+                      Pending
+                    </span>
+                  )}
+                  {cert.status === "Issued" && (
+                    <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#EEF3ED] text-[#486B52]">
+                      Issued
+                    </span>
+                  )}
+                  {cert.status === "Unknown" && (
+                    <span className="text-xs text-gray-500">Unknown</span>
+                  )}
+                  {cert.status === "Not Eligible" && (
+                    <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#F3F4F6] text-[#6B7280]">
+                      Not Eligible
+                    </span>
+                  )}
+                </div>
               </div>
-              <h3 className="text-[15px] font-bold text-[#1F2937] font-dm-sans mb-1">{tpl.title}</h3>
-              <p className="text-[12px] text-[#6B7280] font-rubik mb-1">Cohorts: All</p>
-              <p className="text-[12px] text-[#6B7280] font-rubik mb-5">{tpl.issued} Issued</p>
-              
-              <div className="flex gap-3">
-                <button onClick={() => setActiveModal("preview_certificate")} className="flex-1 py-2 border border-gray-200 rounded-[8px] text-[13px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                  Preview
-                </button>
-                <button className="flex-1 py-2 bg-[#333333] text-white rounded-[8px] text-[13px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                  Issue
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-[12px] font-sans">
+                <span className="text-gray-500">{cert.date}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenMenteeProfile(cert);
+                  }}
+                  className="text-[#DB911E] hover:text-[#BA7815] font-medium cursor-pointer"
+                >
+                  Profile →
                 </button>
               </div>
             </div>
           ))}
         </div>
-      </div>
 
-      {/* Due for Graduation */}
-      <div className="bg-white border border-gray-100 rounded-[16px] p-8 shadow-[0px_2px_8px_rgba(0,0,0,0.04)]">
-        <div className="mb-6">
-          <h2 className="text-[18px] font-bold text-[#1F2937] font-dm-sans">
-            Due for Graduation – <span className="text-gray-400 font-normal">System Recommended</span>
-          </h2>
-        </div>
-        
-        <div className="bg-[#FAFAFA] rounded-[8px] p-4 mb-4 border border-gray-100">
-          <p className="text-[13px] font-bold text-[#4B5563] font-dm-sans mb-1">System Suggestion</p>
-          <p className="text-[13px] text-[#6B7280] font-rubik">
-            4 mentees in <strong>Cohort 2024A</strong> have completed all their goals and are ready for graduation certificates. Review the list and select recipients.
-          </p>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        {/* Desktop Table Container (md and up) */}
+        <div className="hidden md:block overflow-x-auto w-full">
+          <table className="w-full text-left border-collapse min-w-[640px]">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Mentee</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Cohort</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Goals</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Attendance</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Completed</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Action</th>
+              <tr className="bg-[#F6F2EB] text-[12.5px] font-normal text-[#4B5563]">
+                <th className="py-3 px-6 rounded-l-[8px] font-normal font-sans">
+                  Name
+                </th>
+                <th className="py-3 px-6 font-normal font-sans">Certificate</th>
+                <th className="py-3 px-6 font-normal font-sans">Status</th>
+                <th className="py-3 px-6 font-normal font-sans">Date</th>
+                <th className="py-3 px-6 rounded-r-[8px] font-normal font-sans">
+                  Action
+                </th>
               </tr>
             </thead>
-            <tbody>
-              {dueGraduates.map((g, i) => (
-                <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
-                  <td className="py-4 px-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-[#FAFAFA] flex items-center justify-center text-[#6B7280] border border-gray-200 shrink-0">
-                        <User size={14} />
-                      </div>
-                      <span className="text-[14px] font-bold text-[#1F2937] font-dm-sans">
-                        {g.name}
+            <tbody className="divide-y divide-[#F3F4F6] text-[13.5px]">
+              {!resource.loading && !resource.error && records.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-6 py-12 text-center text-sm text-gray-500 font-sans"
+                  >
+                    No certificate records in the database yet.
+                  </td>
+                </tr>
+              )}
+              {records.map((cert) => (
+                <tr
+                  key={cert.id}
+                  className="hover:bg-[#FAF9F6]/60 transition-colors"
+                >
+                  {/* Name */}
+                  <td className="py-4 px-6 text-[#111928] font-medium font-sans">
+                    {cert.name}
+                  </td>
+
+                  {/* Certificate */}
+                  <td className="py-4 px-6 text-[#374151] font-normal font-sans">
+                    {cert.certificate}
+                  </td>
+
+                  {/* Status Pill */}
+                  <td className="py-4 px-6">
+                    {cert.status === "Pending" && (
+                      <span className="inline-flex items-center justify-center px-3 py-0.5 rounded-full text-[11.5px] font-medium bg-[#FAF3EA] text-[#9A6D29]">
+                        Pending
                       </span>
-                    </div>
+                    )}
+                    {cert.status === "Issued" && (
+                      <span className="inline-flex items-center justify-center px-3 py-0.5 rounded-full text-[11.5px] font-medium bg-[#EEF3ED] text-[#486B52]">
+                        Issued
+                      </span>
+                    )}
+                    {cert.status === "Unknown" && (
+                      <span className="text-xs text-gray-500">
+                        Status not provided
+                      </span>
+                    )}
+                    {cert.status === "Not Eligible" && (
+                      <span className="inline-flex items-center justify-center px-3 py-0.5 rounded-full text-[11.5px] font-medium bg-[#F3F4F6] text-[#6B7280]">
+                        Not Eligible
+                      </span>
+                    )}
                   </td>
-                  <td className="py-4 px-4 text-[13px] text-[#1F2937] font-medium">
-                    2024A
+
+                  {/* Date */}
+                  <td className="py-4 px-6 text-[#374151] font-normal font-sans">
+                    {cert.date}
                   </td>
-                  <td className="py-4 px-4 text-[13px] text-[#4B5563]">
-                    {g.goals}
-                  </td>
-                  <td className="py-4 px-4 text-[13px] text-[#4B5563]">
-                    {g.attendance}
-                  </td>
-                  <td className="py-4 px-4 text-[13px] text-[#4B5563]">
-                    {g.date}
-                  </td>
-                  <td className="py-4 px-4">
-                    <button 
-                      onClick={() => setActiveModal("generate_step1")}
-                      className="px-4 py-1.5 bg-[#333333] text-white rounded-[4px] text-[12px] font-medium hover:bg-[#1f1f1f] transition-colors"
+
+                  {/* Action Link -> Opens detailed Profile view */}
+                  <td className="py-4 px-6">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMenteeProfile(cert)}
+                      className="text-[#DB911E] hover:text-[#BA7815] font-medium text-[13.5px] font-sans transition-colors cursor-pointer"
                     >
-                      Issue
+                      Profile
                     </button>
                   </td>
                 </tr>
@@ -180,672 +1614,6 @@ export default function AdminCertificatesPage() {
           </table>
         </div>
       </div>
-
-      {/* Issued Certificates */}
-      <div className="bg-white border border-gray-100 rounded-[16px] p-8 shadow-[0px_2px_8px_rgba(0,0,0,0.04)]">
-        <h2 className="text-[18px] font-bold text-[#1F2937] font-dm-sans mb-6">
-          Issued Certificates
-        </h2>
-        
-        <div className="flex justify-between items-center mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search by name, cohort, or certificate..."
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 w-[300px]"
-            />
-          </div>
-          <div className="flex gap-3">
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-              <Filter size={16} />
-              Filters
-            </button>
-            <button className="px-4 py-2 border border-gray-200 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-              Export
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Mentee</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Cohort</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Certificate</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Issue Date</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Status</th>
-                <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {issuedCertificates.map((c, i) => (
-                <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
-                  <td className="py-4 px-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-[#FAFAFA] flex items-center justify-center text-[#6B7280] border border-gray-200 shrink-0">
-                        <User size={14} />
-                      </div>
-                      <span className="text-[14px] font-bold text-[#1F2937] font-dm-sans">
-                        {c.name}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-4 px-4 text-[13px] font-bold text-[#1F2937]">
-                    2024A
-                  </td>
-                  <td className="py-4 px-4 text-[13px] text-[#4B5563]">
-                    {c.cert}
-                  </td>
-                  <td className="py-4 px-4 text-[13px] text-[#1F2937] font-medium">
-                    {c.date}
-                  </td>
-                  <td className="py-4 px-4">
-                    <span className={`px-3 py-1 text-[11px] font-medium rounded-[4px] ${c.statusBg}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4">
-                    <div className="flex gap-2">
-                      <button className="px-3 py-1 border border-gray-200 rounded-[4px] text-[11px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                        View
-                      </button>
-                      <button className="px-3 py-1 border border-gray-200 rounded-[4px] text-[11px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                        Revoke
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modal: Create Template */}
-      {activeModal === "create_template" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4 py-8 overflow-y-auto">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200 my-auto">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-              <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans">
-                Create Certificate Template
-              </h2>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto max-h-[70vh]">
-              {/* Form fields */}
-              <div className="space-y-6">
-                <div>
-                  <p className="text-[14px] font-bold text-[#4B5563] font-dm-sans mb-3">Applicable Cohorts</p>
-                  <div className="flex gap-2">
-                    {["All Cohorts", "2024A", "2024B", "2023A", "2023B"].map((c, i) => (
-                      <span key={i} className={`px-3 py-1.5 border rounded-[6px] text-[12px] font-medium cursor-pointer ${i === 0 ? 'border-gray-300 bg-white text-gray-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">Certificate Title</label>
-                  <input type="text" placeholder="e.g., Certificate of Completion" className="w-full px-4 py-2.5 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400" />
-                </div>
-
-                <div>
-                  <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">Description</label>
-                  <textarea placeholder="This certifies that [Participant Name] has successfully completed..." className="w-full px-4 py-2.5 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 min-h-[80px]" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">Signatory Name</label>
-                    <input type="text" placeholder="Program Director name" className="w-full px-4 py-2.5 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400" />
-                  </div>
-                  <div>
-                    <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">Signatory Title</label>
-                    <input type="text" placeholder="e.g., Director of Mentorship" className="w-full px-4 py-2.5 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400" />
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[14px] font-bold text-[#4B5563] font-dm-sans mb-3">Choose Background/Template</p>
-                  <div className="grid grid-cols-3 gap-4">
-                    {bgTemplates.map((bg, i) => (
-                      <div key={bg.id} className="border border-gray-200 rounded-[8px] p-3 cursor-pointer hover:border-gray-300 transition-colors">
-                        <div className="h-20 bg-[#E5E7EB] rounded-[4px] mb-3 flex flex-col items-center justify-center text-gray-400">
-                          <ImageIcon size={16} className="mb-1" />
-                          <span className="text-[10px]">{bg.name}</span>
-                        </div>
-                        <p className="text-[12px] font-bold text-[#1F2937] font-dm-sans leading-tight mb-1">{bg.name}</p>
-                        <p className="text-[10px] text-[#6B7280] font-rubik leading-tight">{bg.desc}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[14px] font-bold text-[#4B5563] font-dm-sans mb-3">Upload Logo/Signature</p>
-                  <div className="border border-dashed border-gray-300 rounded-[8px] p-8 flex flex-col items-center justify-center text-center bg-gray-50/50">
-                    <p className="text-[13px] text-[#4B5563] font-medium mb-3">Drop image here or click to upload</p>
-                    <button className="px-4 py-1.5 border border-gray-200 rounded-[6px] text-[12px] font-medium bg-white shadow-sm">Upload</button>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[14px] font-bold text-[#4B5563] font-dm-sans mb-3">Issue Criteria</p>
-                  <div className="space-y-3">
-                    {["Complete all modules", "Attend ≥80% sessions", "Submit final reflection"].map((crit, i) => (
-                      <label key={i} className="flex items-center gap-3 p-3 border border-gray-200 rounded-[8px] cursor-pointer hover:bg-gray-50">
-                        <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#333333] focus:ring-[#333333]" />
-                        <span className="text-[14px] text-[#1F2937] font-medium">{crit}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-white rounded-b-[16px]">
-              <button onClick={() => setActiveModal("none")} className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Preview
-              </button>
-              <button className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                Create Certificate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Generate Step 1 */}
-      {activeModal === "generate_step1" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="px-6 py-5 flex justify-between items-start border-b border-gray-100">
-              <div>
-                <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans mb-1">
-                  Generate Graduation Certificates
-                </h2>
-                <p className="text-[14px] text-[#6B7280] font-rubik">
-                  Step 1 of 4 — Choose template & background
-                </p>
-              </div>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors mt-1">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              {/* Progress */}
-              <div className="flex items-center justify-between mb-8 px-2">
-                {[1, 2, 3, 4].map((step, index) => (
-                  <div key={step} className="flex items-center flex-1 last:flex-none">
-                    <div className={`w-8 h-8 rounded-[6px] flex items-center justify-center text-[13px] font-bold shrink-0
-                      ${step <= 1 ? 'bg-[#333333] text-white' : 'bg-white border border-gray-200 text-[#4B5563]'}`}>
-                      {step}
-                    </div>
-                    {index < 3 && (
-                      <div className={`flex-1 h-[3px] mx-4 rounded-full ${step < 1 ? 'bg-[#4B5563]' : 'bg-[#F2F4F8]'}`}></div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-6">
-                <div>
-                  <p className="text-[15px] font-bold text-[#4B5563] font-dm-sans mb-3">Select Cohort</p>
-                  <div className="relative">
-                    <select className="w-full px-4 py-3 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 appearance-none bg-transparent text-gray-500">
-                      <option>Choose Cohort</option>
-                      <option>Cohort 2024A</option>
-                    </select>
-                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[15px] font-bold text-[#4B5563] font-dm-sans mb-3">Choose Background/Template</p>
-                  <div className="grid grid-cols-3 gap-4">
-                    {bgTemplates.map((bg) => (
-                      <div key={bg.id} className="border border-gray-200 rounded-[8px] p-3 cursor-pointer hover:border-gray-300 transition-colors">
-                        <div className="h-20 bg-[#E5E7EB] rounded-[4px] mb-3 flex flex-col items-center justify-center text-gray-400">
-                          <ImageIcon size={16} className="mb-1" />
-                          <span className="text-[10px]">{bg.name}</span>
-                        </div>
-                        <p className="text-[12px] font-bold text-[#1F2937] font-dm-sans leading-tight mb-1">{bg.name}</p>
-                        <p className="text-[10px] text-[#6B7280] font-rubik leading-tight">{bg.desc}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-[#FAFAFA] border border-gray-100 rounded-[8px] p-4 text-[14px] text-[#6B7280]">
-                  Auto-fill fields: Mentee name • Cohort • Date of completion • Certificate ID • Program signatory
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-between bg-white rounded-b-[16px]">
-              <button onClick={() => setActiveModal("none")} className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Cancel
-              </button>
-              <button onClick={() => setActiveModal("generate_step2")} className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                Next: Review Suggestions
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Generate Step 2 */}
-      {activeModal === "generate_step2" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="px-6 py-5 flex justify-between items-start border-b border-gray-100">
-              <div>
-                <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans mb-1">
-                  Generate Graduation Certificates
-                </h2>
-                <p className="text-[14px] text-[#6B7280] font-rubik">
-                  Step 2 of 4 — Review system suggestions
-                </p>
-              </div>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors mt-1">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              {/* Progress */}
-              <div className="flex items-center justify-between mb-8 px-2">
-                {[1, 2, 3, 4].map((step, index) => (
-                  <div key={step} className="flex items-center flex-1 last:flex-none">
-                    <div className={`w-8 h-8 rounded-[6px] flex items-center justify-center text-[13px] font-bold shrink-0
-                      ${step <= 2 ? 'bg-[#333333] text-white' : 'bg-white border border-gray-200 text-[#4B5563]'}`}>
-                      {step}
-                    </div>
-                    {index < 3 && (
-                      <div className={`flex-1 h-[3px] mx-4 rounded-full ${step < 2 ? 'bg-[#4B5563]' : 'bg-[#F2F4F8]'}`}></div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="bg-[#FAFAFA] rounded-[8px] p-4 mb-6 border border-gray-100">
-                <p className="text-[13px] text-[#1F2937] font-medium">
-                  <strong>System found 7 mentees</strong> who completed all goals in Cohort 2024A. Select who deserves graduation certificates.
-                </p>
-              </div>
-
-              <div className="border border-gray-200 rounded-[12px] overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-200 bg-[#FAFAFA]">
-                      <th className="py-3 px-4 w-[40px]">
-                        <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#333333] focus:ring-[#333333]" />
-                      </th>
-                      <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Recipient</th>
-                      <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Goals</th>
-                      <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Attend</th>
-                      <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Completed</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dueGraduates.map((g, i) => (
-                      <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
-                        <td className="py-4 px-4">
-                          <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#333333] focus:ring-[#333333]" />
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-[#FAFAFA] flex items-center justify-center text-[#6B7280] border border-gray-200 shrink-0">
-                              <User size={14} />
-                            </div>
-                            <span className="text-[14px] font-bold text-[#1F2937] font-dm-sans">
-                              {g.name}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4 text-[13px] font-medium text-[#4B5563]">
-                          {g.goals}
-                        </td>
-                        <td className="py-4 px-4 text-[13px] font-medium text-[#4B5563]">
-                          {g.attendance}
-                        </td>
-                        <td className="py-4 px-4 text-[13px] font-medium text-[#4B5563]">
-                          {g.date}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-between bg-white rounded-b-[16px]">
-              <button onClick={() => setActiveModal("generate_step1")} className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Back
-              </button>
-              <button onClick={() => setActiveModal("generate_step3")} className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                Next: Confirm Details
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Generate Step 3 */}
-      {activeModal === "generate_step3" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="px-6 py-5 flex justify-between items-start border-b border-gray-100">
-              <div>
-                <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans mb-1">
-                  Generate Graduation Certificates
-                </h2>
-                <p className="text-[14px] text-[#6B7280] font-rubik">
-                  Step 3 of 4 — Review system suggestions
-                </p>
-              </div>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors mt-1">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              {/* Progress */}
-              <div className="flex items-center justify-between mb-8 px-2">
-                {[1, 2, 3, 4].map((step, index) => (
-                  <div key={step} className="flex items-center flex-1 last:flex-none">
-                    <div className={`w-8 h-8 rounded-[6px] flex items-center justify-center text-[13px] font-bold shrink-0
-                      ${step <= 3 ? 'bg-[#333333] text-white' : 'bg-white border border-gray-200 text-[#4B5563]'}`}>
-                      {step}
-                    </div>
-                    {index < 3 && (
-                      <div className={`flex-1 h-[3px] mx-4 rounded-full ${step < 3 ? 'bg-[#4B5563]' : 'bg-[#F2F4F8]'}`}></div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-[#FAFAFA] rounded-[8px] p-4">
-                  <p className="text-[12px] text-[#6B7280] font-rubik mb-1">Template</p>
-                  <p className="text-[15px] font-bold text-[#1F2937] font-dm-sans">Year 2 Graduation</p>
-                </div>
-                <div className="bg-[#FAFAFA] rounded-[8px] p-4">
-                  <p className="text-[12px] text-[#6B7280] font-rubik mb-1">Background</p>
-                  <p className="text-[15px] font-bold text-[#1F2937] font-dm-sans">Classic Gold</p>
-                </div>
-                <div className="bg-[#FAFAFA] rounded-[8px] p-4">
-                  <p className="text-[12px] text-[#6B7280] font-rubik mb-1">Recipients</p>
-                  <p className="text-[15px] font-bold text-[#1F2937] font-dm-sans">2 mentees</p>
-                </div>
-                <div className="bg-[#FAFAFA] rounded-[8px] p-4">
-                  <p className="text-[12px] text-[#6B7280] font-rubik mb-1">Date Of Issue</p>
-                  <p className="text-[15px] font-bold text-[#1F2937] font-dm-sans">Mar 12, 2026</p>
-                </div>
-              </div>
-
-              <div className="border border-gray-200 rounded-[12px] p-6 mb-6">
-                <h3 className="text-[15px] font-bold text-[#4B5563] font-dm-sans mb-4 border-b border-gray-100 pb-4">
-                  Recipients Preview (auto-pulled from profile)
-                </h3>
-                <div className="space-y-3">
-                  {[
-                    { name: "Sarah Mwangi", details: "Cohort 2024A • Completed Mar 12, 2026 • CERT-2026-1000" },
-                    { name: "Michael Albert", details: "Cohort 2024A • Completed Mar 14, 2026 • CERT-2026-1001" }
-                  ].map((r, i) => (
-                    <div key={i} className="border border-gray-100 rounded-[8px] p-4 flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-[#FAFAFA] flex items-center justify-center text-[#6B7280] border border-gray-200 shrink-0">
-                        <User size={18} />
-                      </div>
-                      <div>
-                        <p className="text-[14px] font-bold text-[#1F2937] font-dm-sans">{r.name}</p>
-                        <p className="text-[12px] text-[#6B7280] font-rubik">{r.details}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-[#FAFAFA] border border-gray-100 rounded-[8px] p-4 text-[13px] text-[#6B7280]">
-                A unique certificate PDF will be generated for each mentee using their name, cohort, and completion date. Recipients will be notified via email.
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-between bg-white rounded-b-[16px]">
-              <button onClick={() => setActiveModal("generate_step2")} className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Back
-              </button>
-              <button onClick={() => setActiveModal("generate_step4")} className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                Generate 2 Certificates
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Generate Step 4 (Success) */}
-      {activeModal === "generate_step4" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="px-6 py-5 flex justify-between items-start border-b border-gray-100">
-              <div>
-                <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans mb-1">
-                  Generate Graduation Certificates
-                </h2>
-                <p className="text-[14px] text-[#6B7280] font-rubik">
-                  Step 4 of 4 — Complete
-                </p>
-              </div>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors mt-1">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              {/* Progress */}
-              <div className="flex items-center justify-between mb-8 px-2">
-                {[1, 2, 3, 4].map((step, index) => (
-                  <div key={step} className="flex items-center flex-1 last:flex-none">
-                    <div className={`w-8 h-8 rounded-[6px] flex items-center justify-center text-[13px] font-bold shrink-0
-                      ${step <= 4 ? 'bg-[#333333] text-white' : 'bg-white border border-gray-200 text-[#4B5563]'}`}>
-                      {step}
-                    </div>
-                    {index < 3 && (
-                      <div className={`flex-1 h-[3px] mx-4 rounded-full ${step < 4 ? 'bg-[#4B5563]' : 'bg-[#F2F4F8]'}`}></div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="text-center py-8">
-                <div className="text-[48px] mb-4">🎉</div>
-                <h3 className="text-[24px] font-bold text-[#1F2937] font-dm-sans mb-3">
-                  Certificates Generated!
-                </h3>
-                <p className="text-[15px] text-[#4B5563] font-rubik max-w-[400px] mx-auto mb-8">
-                  2 unique certificates were created using the Classic Gold design and sent to each mentee.
-                </p>
-
-                <div className="flex justify-center gap-4">
-                  <div className="bg-[#FAFAFA] rounded-[12px] p-6 w-[120px]">
-                    <p className="text-[24px] font-bold text-[#1F2937] font-dm-sans leading-none mb-2">2</p>
-                    <p className="text-[11px] font-medium text-[#6B7280]">Generated</p>
-                  </div>
-                  <div className="bg-[#FAFAFA] rounded-[12px] p-6 w-[120px]">
-                    <p className="text-[24px] font-bold text-[#1F2937] font-dm-sans leading-none mb-2">2</p>
-                    <p className="text-[11px] font-medium text-[#6B7280]">Emailed</p>
-                  </div>
-                  <div className="bg-[#FAFAFA] rounded-[12px] p-6 w-[120px]">
-                    <p className="text-[24px] font-bold text-[#1F2937] font-dm-sans leading-none mb-2">0</p>
-                    <p className="text-[11px] font-medium text-[#6B7280]">Failed</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-white rounded-b-[16px]">
-              <button onClick={() => setActiveModal("none")} className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Close
-              </button>
-              <div className="flex gap-3">
-                <button className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                  View Sample
-                </button>
-                <button className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                  Download PDF
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Certificate Preview */}
-      {activeModal === "preview_certificate" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="px-6 py-5 flex justify-between items-center border-b border-gray-100">
-              <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans">
-                Certificate Preview
-              </h2>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-8 bg-[#F9FAFB] flex justify-center">
-              {/* Actual Certificate Document Design */}
-              <div className="bg-white border border-gray-200 shadow-sm w-[600px] p-12 text-center relative overflow-hidden">
-                <div className="absolute inset-2 border-[2px] border-[#E5E7EB]"></div>
-                
-                <div className="relative z-10 flex flex-col items-center">
-                  <div className="w-16 h-16 bg-[#F3F4F6] flex flex-col items-center justify-center text-gray-400 mb-6">
-                    <ImageIcon size={20} className="mb-1" />
-                    <span className="text-[10px]">Org Logo</span>
-                  </div>
-                  
-                  <p className="text-[14px] text-[#6B7280] font-medium uppercase tracking-wider mb-8">
-                    Masterclass Mentorship Platform
-                  </p>
-                  
-                  <h1 className="text-[32px] font-bold text-[#1F2937] font-dm-sans mb-6">
-                    Certificate of Completion
-                  </h1>
-                  
-                  <p className="text-[15px] text-[#6B7280] font-medium mb-6">
-                    This is to certify that
-                  </p>
-                  
-                  <p className="text-[28px] font-bold text-[#1F2937] border-b-2 border-[#1F2937] px-8 pb-2 mb-10 inline-block font-dm-sans">
-                    [Participant Name]
-                  </p>
-                  
-                  <p className="text-[14px] text-[#4B5563] max-w-[400px] leading-relaxed mb-16 mx-auto">
-                    has successfully completed all requirements of the mentorship program for the designated cohort year.
-                  </p>
-                  
-                  <div className="flex justify-between w-full px-8 mb-12">
-                    <div className="text-center w-[160px]">
-                      <div className="border-b border-gray-300 pb-2 mb-2">
-                        <span className="text-[14px] font-bold text-[#1F2937] font-dm-sans">[Program Director]</span>
-                      </div>
-                      <span className="text-[11px] text-[#6B7280] uppercase tracking-wider">Director of Mentorship</span>
-                    </div>
-                    <div className="text-center w-[160px]">
-                      <div className="border-b border-gray-300 pb-2 mb-2">
-                        <span className="text-[14px] font-bold text-[#1F2937] font-dm-sans">[Date Issued]</span>
-                      </div>
-                      <span className="text-[11px] text-[#6B7280] uppercase tracking-wider">Issue Date</span>
-                    </div>
-                  </div>
-                  
-                  <p className="text-[11px] text-[#9CA3AF]">
-                    Certificate ID: CERT-2026-XXXX • Verify at platform.com/verify
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-white rounded-b-[16px]">
-              <button className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Edit Template
-              </button>
-              <button className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                Download PDF
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Bulk Issue Certificates */}
-      {activeModal === "bulk_issue" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[600px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="px-6 py-5 flex justify-between items-start border-b border-gray-100">
-              <div>
-                <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans mb-1">
-                  Bulk Issue Certificates
-                </h2>
-                <p className="text-[14px] text-[#6B7280] font-rubik">
-                  Issue certificates to an entire cohort at once.
-                </p>
-              </div>
-              <button onClick={() => setActiveModal("none")} className="text-gray-400 hover:text-gray-600 transition-colors mt-1">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              <div>
-                <label className="block text-[15px] font-bold text-[#4B5563] font-dm-sans mb-3">Select Template</label>
-                <div className="relative">
-                  <select className="w-full px-4 py-3 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 appearance-none bg-transparent text-gray-500">
-                    <option>Choose Template</option>
-                    {templates.map((t, i) => <option key={i}>{t.title}</option>)}
-                  </select>
-                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[15px] font-bold text-[#4B5563] font-dm-sans mb-3">Select Cohort</label>
-                <div className="relative">
-                  <select className="w-full px-4 py-3 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 appearance-none bg-transparent text-gray-500">
-                    <option>Choose Cohort</option>
-                    <option>Cohort 2024A</option>
-                    <option>Cohort 2024B</option>
-                  </select>
-                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[15px] font-bold text-[#4B5563] font-dm-sans mb-3">Summary</label>
-                <div className="bg-[#FAFAFA] border border-gray-100 rounded-[8px] p-4 text-[14px] text-[#4B5563]">
-                  25 participants eligible • 3 criteria checks • Auto-verify enabled
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 flex justify-end gap-3 bg-white rounded-b-[16px] mt-2">
-              <button onClick={() => setActiveModal("none")} className="px-6 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Cancel
-              </button>
-              <button className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                Issue Now
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

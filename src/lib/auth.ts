@@ -16,13 +16,13 @@ export interface Program {
 export const availablePrograms: Program[] = [
   {
     id: "vision-2535",
-    name: "Vision 2535",
-    description: "Sub description if any",
+    name: "Vision2535 Program",
+    description: "A guided mentorship journey for leadership and personal growth.",
   },
   {
     id: "fellowship",
     name: "Fellowship Program",
-    description: "Sub description if any",
+    description: "Get advanced training and mentorship from senior leaders.",
   },
 ];
 
@@ -33,8 +33,14 @@ export interface User {
   lastName: string;
   role: UserRole;
   avatarUrl?: string;
+  mustChangePassword?: boolean;
+  journeyYear?: number;
   enrolledPrograms: string[]; // List of program IDs
 }
+
+/** First-login profile setup applies only to mentors and mentees. */
+export const requiresOnboarding = (user: User | null): boolean =>
+  Boolean(user && user.role !== "ADMIN" && user.mustChangePassword);
 
 /**
  * Get the current user from session storage (client-side) via Zustand
@@ -110,11 +116,9 @@ export const getRoleNavigation = (role: UserRole) => {
     ],
     MENTOR: [
       { name: "Dashboard", href: "/mentor/dashboard" },
-      { name: "Goals", href: "/mentor/goals" },
       { name: "Sessions", href: "/mentor/sessions" },
       { name: "Reflections", href: "/mentor/reflections" },
       { name: "All Mentees", href: "/mentor/mentees" },
-      { name: "Certificates", href: "/mentor/certificates" },
       { name: "Profile", href: "/mentor/profile" },
     ],
     ADMIN: [

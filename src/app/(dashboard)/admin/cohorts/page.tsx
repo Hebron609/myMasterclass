@@ -1,284 +1,295 @@
 "use client";
-
-import { useState } from "react";
-import { Search, User, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus } from "lucide-react";
+import { useApiResource } from "@/hooks/useApiResource";
+import { useAuthStore } from "@/store/useAuthStore";
+import { fetchCohorts } from "@/lib/services/cohorts";
+import { fetchAdminUsers } from "@/lib/services/admin";
+import { fetchPrograms } from "@/lib/services/programs";
+import { CohortDetailView } from "@/components/dashboard/admin/CohortDetailView";
+import type { CohortData } from "@/components/dashboard/admin/ManageCohortModal";
+import { CreateCohortModal } from "@/components/dashboard/cohorts/CreateCohortModal";
+import { ApiState } from "@/components/shared/ApiUI";
+import { CardGridSkeleton } from "@/components/shared/Skeletons";
 
 export default function AdminCohortsPage() {
-  const [selectedCohort, setSelectedCohort] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const resource = useApiResource("cohort-cards", async (token) => {
+    const [cohorts, programsList] = await Promise.all([
+      fetchCohorts(token),
+      fetchPrograms(token).catch(() => []),
+    ]);
+    const programMap = new Map(
+      programsList.map((p) => [Number(p.id), p.name]),
+    );
 
-  if (selectedCohort) {
-    // Detail View
+    return Promise.all(
+      cohorts.map(async (cohort) => {
+        const users = await fetchAdminUsers(token, { cohort_id: cohort.id });
+        const start = cohort.startsAt ? new Date(cohort.startsAt) : null;
+        const started =
+          start && !Number.isNaN(start.getTime()) ? start.getFullYear() : "—";
+        const menteeUsers = users.filter((user) => user.role === "mentee");
+        const menteeCount = menteeUsers.length;
+        const mentorCount = users.filter((user) => user.role === "mentor").length;
+
+        const backendRate =
+          (cohort as unknown as { active_rate?: number; rate?: number })
+            .active_rate ??
+          (cohort as unknown as { active_rate?: number; rate?: number }).rate;
+
+        const rate =
+          typeof backendRate === "number"
+            ? `${backendRate}%`
+            : menteeCount > 0
+              ? `${Math.round(
+                  (menteeUsers.filter((u) => u.status === "active").length /
+                    menteeCount) *
+                    100,
+                )}%`
+              : "—";
+
+        const toTitleCase = (str: string): string => {
+          if (!str) return "Convergence";
+          return str
+            .trim()
+            .split(/\s+/)
+            .map(
+              (word) =>
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+            )
+            .join(" ");
+        };
+
+        const namePrefix =
+          cohort.name && cohort.name.includes(" ")
+            ? cohort.name.replace(/['’]?\d+.*$/, "").trim()
+            : undefined;
+
+        const cleanNamePrefix =
+          namePrefix &&
+          !["cohort", "group", "class", "batch"].includes(
+            namePrefix.toLowerCase(),
+          )
+            ? namePrefix
+            : undefined;
+
+        const rawProgramName =
+          (cohort as unknown as { program?: { name?: string } }).program
+            ?.name ||
+          (cohort.programId
+            ? programMap.get(Number(cohort.programId))
+            : undefined);
+
+        const cleanProgramName = rawProgramName
+          ? rawProgramName.replace(/\s+program$/i, "").trim()
+          : undefined;
+
+        const resolvedCategory =
+          cleanNamePrefix ||
+          (cohort as unknown as { category?: string }).category ||
+          cleanProgramName ||
+          cohort.description ||
+          "Convergence";
+
+        const category = toTitleCase(resolvedCategory);
+
+        return {
+          id: cohort.id,
+          name: cohort.name,
+          category,
+          rate,
+          participants: menteeCount,
+          mentors: mentorCount,
+          started,
+          sessions:
+            typeof cohort.sessionsCount === "number"
+              ? cohort.sessionsCount
+              : "—",
+          programId: cohort.programId,
+          cadence: cohort.cadence,
+          capacity: cohort.capacity,
+          isEnrollmentOpen: cohort.isEnrollmentOpen,
+          status: cohort.status,
+          year:
+            typeof started === "number"
+              ? Math.min(
+                  10,
+                  Math.max(1, new Date().getFullYear() - started + 1),
+                )
+              : 0,
+        };
+      }),
+    );
+  });
+  const { activeProgram } = useAuthStore();
+  const [selected, setSelected] = useState<CohortData | null>(null);
+  const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    const back = () => setSelected(null);
+    const openCreate = () => setCreating(true);
+    window.addEventListener("admin-cohort-back", back);
+    window.addEventListener("open-create-cohort-modal", openCreate);
+    return () => {
+      window.removeEventListener("admin-cohort-back", back);
+      window.removeEventListener("open-create-cohort-modal", openCreate);
+    };
+  }, []);
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("admin-cohort-view-change", {
+        detail: { selectedCohort: selected },
+      }),
+    );
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent("admin-cohort-view-change", {
+          detail: { selectedCohort: null },
+        }),
+      );
+    };
+  }, [selected]);
+  if (selected)
     return (
-      <div className="space-y-8 pb-10">
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-[24px] font-bold text-[#1F2937] font-dm-sans mb-1">
-              Cohort 2024A
-            </h1>
-            <p className="text-[14px] text-[#6B7280] font-rubik">
-              Started January 2024 • Currently Year 2
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button className="px-4 py-2 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-              Edit Cohort
-            </button>
-            <button className="px-4 py-2 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-              + Add Participants
-            </button>
-          </div>
-        </div>
+      <CohortDetailView
+        key={selected.id}
+        cohort={selected}
+        onBack={() => setSelected(null)}
+        onUpdateCohort={(updated) => {
+          setSelected(updated);
+          resource.reload();
+        }}
+      />
+    );
 
-        <button 
-          onClick={() => setSelectedCohort(null)}
-          className="text-[14px] text-[#4B5563] hover:underline"
+  const allCohorts = resource.data || [];
+  const displayCohorts = allCohorts.filter((cohort) => {
+    if (!activeProgram) return true;
+    const progIdNum = Number(activeProgram.id);
+    if (Number.isFinite(progIdNum) && cohort.programId != null) {
+      return Number(cohort.programId) === progIdNum;
+    }
+    const activeName = activeProgram.name
+      .replace(/\s+program$/i, "")
+      .trim()
+      .toLowerCase();
+    if (cohort.category.trim().toLowerCase() === activeName) return true;
+    if (cohort.programId == null && activeName.includes("vision")) return true;
+    return false;
+  });
+
+  return (
+    <div className="w-full pb-10">
+      <div className="flex items-center justify-end mb-5">
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-2 bg-[#DB911E] hover:bg-[#BA7815] text-white px-4 py-2.5 rounded-[10px] text-[13.5px] font-medium shadow-sm transition-colors cursor-pointer font-sans"
         >
-          &larr; Back to all cohorts
+          <Plus className="w-4 h-4" />
+          <span>Create Cohort</span>
         </button>
-
-        <div className="bg-white border border-gray-100 rounded-[16px] p-8 shadow-[0px_2px_8px_rgba(0,0,0,0.04)]">
-          <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
-            <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans">
-              Participants (25)
-            </h2>
-            <div className="flex gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                <input
-                  type="text"
-                  placeholder="Search participants..."
-                  className="pl-10 pr-4 py-2 border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 w-[250px]"
-                />
+      </div>
+      <ApiState {...resource} onRetry={resource.reload} />
+      {resource.loading ? (
+        <CardGridSkeleton count={6} />
+      ) : displayCohorts.length > 0 ? (
+        /* 3-Column Cohorts Grid */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
+          {displayCohorts.map((cohort) => (
+          <div
+            key={cohort.id}
+            className="bg-white border border-[#E5E7EB] rounded-[16px] p-6 sm:p-7 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col justify-between hover:shadow-md transition-shadow font-sans"
+          >
+            {/* Card Header */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[13.5px] font-normal text-[#8DB58D] font-sans">
+                  {cohort.category}
+                </span>
+                {cohort.rate !== "—" && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[12px] font-normal bg-[#EBEFE4] text-[#1F2937] font-sans">
+                    {cohort.rate}
+                  </span>
+                )}
               </div>
-              <button className="px-4 py-2 border border-gray-200 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                Export
+
+              <h2 className="text-[19px] md:text-[20px] font-medium text-[#111928] font-sans mt-2 tracking-tight">
+                {cohort.name}
+              </h2>
+
+              {/* Two-Column, Two-Row Metrics Grid */}
+              <div className="grid grid-cols-2 gap-y-5 gap-x-4 mt-6">
+                <div>
+                  <span className="text-[13px] text-[#6B7280] font-normal font-sans block mb-1">
+                    Participants
+                  </span>
+                  <span className="text-[17px] font-normal text-[#111928] font-sans">
+                    {cohort.participants}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[13px] text-[#6B7280] font-normal font-sans block mb-1">
+                    Mentors
+                  </span>
+                  <span className="text-[17px] font-normal text-[#111928] font-sans">
+                    {cohort.mentors}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[13px] text-[#6B7280] font-normal font-sans block mb-1">
+                    Started
+                  </span>
+                  <span className="text-[17px] font-normal text-[#111928] font-sans">
+                    {cohort.started}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[13px] text-[#6B7280] font-normal font-sans block mb-1">
+                    Year
+                  </span>
+                  <span className="text-[17px] font-normal text-[#111928] font-sans">
+                    {cohort.year || "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card Footer: Manage CTA */}
+            <div className="mt-8 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelected(cohort)}
+                className="text-[13.5px] font-medium text-[#DB911E] hover:text-[#BA7815] transition-colors flex items-center gap-1.5 group cursor-pointer font-sans"
+              >
+                <span>Manage</span>
+                <span className="transition-transform group-hover:translate-x-0.5 font-normal">
+                  →
+                </span>
               </button>
             </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Name</th>
-                  <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Email</th>
-                  <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Mentor</th>
-                  <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Status</th>
-                  <th className="py-3 px-4 text-[13px] font-bold text-[#4B5563] font-dm-sans">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 border border-gray-200">
-                          <User size={16} />
-                        </div>
-                        <span className="text-[14px] font-medium text-[#1F2937] font-dm-sans">
-                          [Participant {i}]
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-[13px] text-[#6B7280]">
-                      participant{i}@email.com
-                    </td>
-                    <td className="py-4 px-4 text-[13px] text-[#6B7280]">
-                      [Mentor {i === 3 ? 1 : i === 1 || i === 4 ? 2 : 3}]
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="px-3 py-1 bg-[#333333] text-white text-[11px] font-medium rounded-[4px]">
-                        Active
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <button className="px-3 py-1.5 border border-gray-200 rounded-[6px] text-[12px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors">
-                        Manage
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Main View
-  return (
-    <div className="space-y-8 pb-10">
-      {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-[24px] font-bold text-[#1F2937] font-dm-sans mb-1">
-            Cohort Management
-          </h1>
-          <p className="text-[14px] text-[#6B7280] font-rubik">
-            Create and manage participant cohorts
-          </p>
-        </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#333333] text-white px-5 py-2.5 rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors"
-        >
-          + Create New Cohort
-        </button>
-      </div>
-
-      {/* Top Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {[
-          { value: "4", label: "Total Cohorts" },
-          { value: "3", label: "Active Cohorts" },
-          { value: "95", label: "Total Participants" },
-          { value: "31", label: "Total Mentors" },
-        ].map((stat, i) => (
-          <div
-            key={i}
-            className="bg-white rounded-[12px] p-6 text-center shadow-[0px_2px_8px_rgba(0,0,0,0.04)]"
-          >
-            <p className="text-[32px] font-bold text-[#1F2937] font-dm-sans mb-2 leading-none">
-              {stat.value}
-            </p>
-            <p className="text-[13px] font-medium text-[#4B5563] font-dm-sans">
-              {stat.label}
-            </p>
           </div>
         ))}
       </div>
-
-      {/* Total Cohorts Grid */}
-      <div className="bg-white border border-gray-100 rounded-[16px] p-8 shadow-[0px_2px_8px_rgba(0,0,0,0.04)]">
-        <h2 className="text-[18px] font-bold text-[#4B5563] font-dm-sans mb-6 border-b border-gray-100 pb-4">
-          Total Cohorts
-        </h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[
-            { name: "Cohort 2024A", started: "Jan 2024", status: "Active", participants: 25, mentors: 8, progress: "Year 2" },
-            { name: "Cohort 2024B", started: "Jul 2024", status: "Active", participants: 30, mentors: 10, progress: "Year 1" },
-            { name: "Cohort 2023A", started: "Jan 2023", status: "Active", participants: 22, mentors: 7, progress: "Year 3" },
-            { name: "Cohort 2022A", started: "Jan 2022", status: "Completed", participants: 18, mentors: 6, progress: "Graduated" },
-          ].map((cohort, i) => (
-            <div key={i} className="border border-gray-200 rounded-[12px] p-6">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h3 className="text-[16px] font-bold text-[#1F2937] font-dm-sans mb-1">
-                    {cohort.name}
-                  </h3>
-                  <p className="text-[12px] text-[#6B7280] font-rubik">
-                    Started: {cohort.started}
-                  </p>
-                </div>
-                <span className={`px-3 py-1 text-[11px] font-medium rounded-[4px] ${
-                  cohort.status === 'Active' 
-                    ? 'bg-[#333333] text-white' 
-                    : 'bg-gray-100 text-gray-700'
-                }`}>
-                  {cohort.status}
-                </span>
-              </div>
-
-              <div className="flex gap-4 mb-6">
-                <div className="flex-1 bg-[#FAFAFA] border border-gray-100 rounded-[8px] py-4 text-center">
-                  <p className="text-[18px] font-bold text-[#1F2937] font-dm-sans mb-1">{cohort.participants}</p>
-                  <p className="text-[11px] text-[#6B7280] font-rubik">Participants</p>
-                </div>
-                <div className="flex-1 bg-[#FAFAFA] border border-gray-100 rounded-[8px] py-4 text-center">
-                  <p className="text-[18px] font-bold text-[#1F2937] font-dm-sans mb-1">{cohort.mentors}</p>
-                  <p className="text-[11px] text-[#6B7280] font-rubik">Mentors</p>
-                </div>
-                <div className="flex-1 bg-[#FAFAFA] border border-gray-100 rounded-[8px] py-4 text-center">
-                  <p className="text-[14px] font-bold text-[#1F2937] font-dm-sans mt-0.5 mb-1.5">{cohort.progress}</p>
-                  <p className="text-[11px] text-[#6B7280] font-rubik">Progress</p>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setSelectedCohort(cohort.name)}
-                  className="flex-1 py-2.5 border border-gray-300 rounded-[8px] text-[13px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors"
-                >
-                  View Details
-                </button>
-                <button className="flex-1 py-2.5 bg-[#333333] text-white rounded-[8px] text-[13px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                  Manage
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Create Cohort Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-[800px] rounded-[16px] shadow-xl border border-gray-200">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-              <h2 className="text-[20px] font-bold text-[#1F2937] font-dm-sans">
-                Create Cohort Form
-              </h2>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 border border-gray-100 m-6 rounded-[12px]">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                  <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">
-                    Cohort Name
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g., Cohort 2025A"
-                    className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 focus:bg-white transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">
-                    Start Date
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder="DD/MM/YYYY"
-                    className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 focus:bg-white transition-colors"
-                  />
-                </div>
-              </div>
-              
-              <div className="mb-6">
-                <label className="block text-[14px] font-bold text-[#4B5563] font-dm-sans mb-2">
-                  Description
-                </label>
-                <textarea 
-                  placeholder="Optional cohort description..."
-                  rows={5}
-                  className="w-full px-4 py-3 bg-[#FAFAFA] border border-gray-200 rounded-[8px] text-[14px] outline-none focus:border-gray-400 focus:bg-white transition-colors resize-none"
-                ></textarea>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button 
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 border border-gray-300 rounded-[8px] text-[14px] font-medium text-[#4B5563] hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button className="px-5 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors">
-                  + Create Cohort
-                </button>
-              </div>
-            </div>
-          </div>
+      ) : (
+        <div className="py-12 text-center text-gray-500 bg-white rounded-[16px] border border-gray-200 p-8">
+          <p className="text-[15px] font-medium text-gray-800 mb-1">
+            {activeProgram && allCohorts.length > 0
+              ? `No cohorts assigned to ${activeProgram.name} yet.`
+              : "No cohorts in the database yet."}
+          </p>
+          <p className="text-[13px] text-gray-500">
+            {activeProgram && allCohorts.length > 0
+              ? "Assign a cohort to this program from Cohort Overview or create a new cohort."
+              : "Create your first cohort or seed the database to populate this section."}
+          </p>
         </div>
       )}
+
+      <CreateCohortModal
+        isOpen={creating}
+        onClose={() => setCreating(false)}
+        onSuccess={resource.reload}
+      />
     </div>
   );
 }

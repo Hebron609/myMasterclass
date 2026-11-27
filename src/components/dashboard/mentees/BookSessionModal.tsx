@@ -18,8 +18,11 @@ export default function BookSessionModal({
 }: BookSessionModalProps) {
   const [isMounted, setIsMounted] = useState(false);
   const [selectedType, setSelectedType] = useState<string>("1-on-1 Mentoring");
-  const [selectedMode, setSelectedMode] = useState<string>("Virtual (Google Meet)");
-  const [selectedDateShortcut, setSelectedDateShortcut] = useState<string>("Mon 10 AM");
+  const [selectedMode, setSelectedMode] = useState<string>(
+    "Virtual (Google Meet)",
+  );
+  const [selectedDateShortcut, setSelectedDateShortcut] =
+    useState<string>("Mon 10 AM");
 
   useEffect(() => {
     setIsMounted(true);
@@ -43,11 +46,7 @@ export default function BookSessionModal({
     "Fri 10 4 PM",
   ];
 
-  const modes = [
-    "Virtual (Google Meet)",
-    "In-Person",
-    "Phone Call",
-  ];
+  const modes = ["Virtual (Google Meet)", "In-Person", "Phone Call"];
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
@@ -76,11 +75,18 @@ export default function BookSessionModal({
         <div className="px-8 mt-2">
           <div className="bg-[#FAF9F6] rounded-2xl p-4 border border-gray-100 flex gap-4 items-center">
             <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-[16px] font-bold text-[#333333] shadow-sm border border-gray-100 uppercase">
-              {mentee.name.split(' ').map(n => n[0]).join('')}
+              {mentee.name
+                .split(" ")
+                .map((n) => n[0])
+                .join("")}
             </div>
             <div>
-              <h3 className="text-[15px] font-bold text-[#333333] font-dm-sans">{mentee.name}</h3>
-              <p className="text-[12px] text-gray-500 font-rubik mt-0.5">{mentee.title}</p>
+              <h3 className="text-[15px] font-bold text-[#333333] font-dm-sans">
+                {mentee.name}
+              </h3>
+              <p className="text-[12px] text-gray-500 font-rubik mt-0.5">
+                {mentee.title}
+              </p>
             </div>
           </div>
         </div>
@@ -89,16 +95,23 @@ export default function BookSessionModal({
         <div className="px-8 py-6 overflow-y-auto flex-1 space-y-6">
           {/* Session Type */}
           <div className="p-6 border border-[#E5E7EB] rounded-2xl space-y-4">
-            <h3 className="text-[16px] font-bold text-[#003F3A] font-dm-sans">Session Type</h3>
+            <h3 className="text-[16px] font-bold text-[#003F3A] font-dm-sans">
+              Session Type
+            </h3>
             <div className="space-y-3">
               {sessionTypes.map((type, idx) => (
-                <label key={idx} className="flex items-center gap-3 p-3 border border-gray-100 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    className="w-4 h-4 rounded border-gray-300 text-[#003F3A] focus:ring-[#003F3A]" 
+                <label
+                  key={idx}
+                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-gray-300 text-[#003F3A] focus:ring-[#003F3A]"
                     defaultChecked={type === "1-on-1 Mentoring"}
                   />
-                  <span className="text-[14px] text-gray-700 font-sans">{type}</span>
+                  <span className="text-[14px] text-gray-700 font-sans">
+                    {type}
+                  </span>
                 </label>
               ))}
             </div>
@@ -107,16 +120,28 @@ export default function BookSessionModal({
           {/* Date and Time Inputs */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-[14px] font-bold text-[#4B5563] font-rubik">Preferred Date</label>
+              <label
+                htmlFor="field-dashboardmenteesBookSessionModaltsx-1"
+                className="text-[14px] font-bold text-[#4B5563] font-rubik"
+              >
+                Preferred Date
+              </label>
               <input
+                id="field-dashboardmenteesBookSessionModaltsx-1"
                 type="text"
                 placeholder="DD/MM/YYYY"
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-[14px] focus:outline-none focus:border-gray-400 placeholder:text-gray-400 transition-all font-sans"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[14px] font-bold text-[#4B5563] font-rubik">Preferred Time</label>
+              <label
+                htmlFor="field-dashboardmenteesBookSessionModaltsx-2"
+                className="text-[14px] font-bold text-[#4B5563] font-rubik"
+              >
+                Preferred Time
+              </label>
               <input
+                id="field-dashboardmenteesBookSessionModaltsx-2"
                 type="text"
                 placeholder="HH:MM"
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-[14px] focus:outline-none focus:border-gray-400 placeholder:text-gray-400 transition-all font-sans"
@@ -126,9 +151,11 @@ export default function BookSessionModal({
 
           {/* Preferred Date Shortcuts */}
           <div className="space-y-2">
-            <label className="text-[14px] font-bold text-[#4B5563] font-rubik">Preferred Date</label>
+            <label className="text-[14px] font-bold text-[#4B5563] font-rubik">
+              Preferred Date
+            </label>
             <div className="flex flex-wrap gap-2">
-              {timeShortcuts.map(time => (
+              {timeShortcuts.map((time) => (
                 <button
                   key={time}
                   onClick={() => setSelectedDateShortcut(time)}
@@ -146,9 +173,11 @@ export default function BookSessionModal({
 
           {/* Mode Selection */}
           <div className="space-y-2">
-            <label className="text-[14px] font-bold text-[#4B5563] font-rubik">Mode</label>
+            <label className="text-[14px] font-bold text-[#4B5563] font-rubik">
+              Mode
+            </label>
             <div className="flex gap-3">
-              {modes.map(mode => (
+              {modes.map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setSelectedMode(mode)}
@@ -166,8 +195,14 @@ export default function BookSessionModal({
 
           {/* Message Field */}
           <div className="space-y-2 pb-2">
-            <label className="text-[14px] font-bold text-[#4B5563] font-rubik">Message (Optional)</label>
+            <label
+              htmlFor="field-dashboardmenteesBookSessionModaltsx-3"
+              className="text-[14px] font-bold text-[#4B5563] font-rubik"
+            >
+              Message (Optional)
+            </label>
             <textarea
+              id="field-dashboardmenteesBookSessionModaltsx-3"
               placeholder="What would you like to discuss?"
               rows={4}
               className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-[14px] focus:outline-none focus:border-gray-400 placeholder:text-gray-400 transition-all resize-none font-sans shadow-sm"
@@ -175,6 +210,9 @@ export default function BookSessionModal({
           </div>
         </div>
 
+        <p className="px-8 text-sm text-gray-500">
+          Sending a booking request to a mentee is not available yet.
+        </p>
         {/* Footer */}
         <div className="px-8 py-6 border-t border-[#E5E7EB] flex justify-end gap-3 bg-white">
           <button
@@ -184,6 +222,8 @@ export default function BookSessionModal({
             Cancel
           </button>
           <button
+            disabled
+            title="Booking requests are not available yet"
             className="px-6 py-2.5 bg-[#333333] text-white text-[14px] font-semibold rounded-lg hover:bg-[#222222] transition-all font-sans shadow-sm"
           >
             Send Booking Request
@@ -191,6 +231,6 @@ export default function BookSessionModal({
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

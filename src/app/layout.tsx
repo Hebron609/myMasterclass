@@ -1,6 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Rubik } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -31,7 +39,7 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${rubik.variable} font-sans antialiased`}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

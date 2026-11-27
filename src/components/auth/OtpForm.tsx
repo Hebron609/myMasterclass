@@ -1,146 +1,219 @@
 "use client";
 
-import { useState, useRef, useEffect, KeyboardEvent, ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useState } from "react";
+import Image from "next/image";
+import Link from "@/components/shared/AppLink";
+import { ShieldCheck, ArrowLeft, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import logoIcon from "../../../public/icons/Diba-Leagleship-Institute-Blk.svg";
 
 export function OtpForm() {
-  const router = useRouter();
-  const [otp, setOtp] = useState<string[]>(["", "", "", "", "", ""]);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  // Auto-focus first input on mount
-  useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
-
-  const handleChange = (index: number, value: string) => {
-    // Only allow numeric input
-    if (value && !/^\d$/.test(value)) return;
-
-    const newOtp = [...otp];
-    newOtp[index] = value;
-    setOtp(newOtp);
-
-    // Auto-focus next input if value is entered
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
-    // Handle backspace to move to previous field
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
+  const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData("text").slice(0, 6);
-    
-    if (/^\d+$/.test(pastedData)) {
-      const newOtp = pastedData.split("");
-      setOtp([...newOtp, ...Array(6 - newOtp.length).fill("")]);
-      
-      // Focus the next empty field or last field
-      const nextIndex = Math.min(pastedData.length, 5);
-      inputRefs.current[nextIndex]?.focus();
+    if (!email || !email.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to send verification code.");
+      }
+
+      setCodeSent(true);
+      setSuccess("Verification code sent! Please check your email inbox.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to send verification code.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    const otpValue = otp.join("");
-    if (otpValue.length === 6) {
-      setIsLoading(true);
-      console.log("OTP submitted:", otpValue);
+    if (code.trim().length < 6) {
+      setError("Please enter the complete 6-digit verification code.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Invalid verification code.");
+      }
+
+      setSuccess(
+        data.message || "Account successfully verified! Redirecting to sign in...",
+      );
       setTimeout(() => {
-        setIsLoading(false);
-        router.push('/reset-password');
-      }, 1500);
+        window.location.href = "/login";
+      }, 1200);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Failed to verify code.",
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
-
-  const isComplete = otp.every((digit) => digit !== "");
 
   return (
-    <div className="w-full max-w-[532px]">
-      {/* Card Container */}
-      <div className="bg-white rounded-[15px] p-10 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-gray-100">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-[32px] font-semibold text-[#1a3d3d] mb-3 font-heading">
-            Enter your OTP
-          </h1>
-          <p className="text-[15px] text-[#6b7280] font-sans leading-relaxed">
-            We've sent a verification code to{" "}
-            <span className="font-medium text-gray-900">daphnesm@gmail.com</span>
-          </p>
-        </div>
+    <div className="w-full max-w-[480px] bg-white rounded-[24px] p-8 sm:p-10 shadow-[0_8px_30px_rgba(0,0,0,0.04)] border border-gray-100">
+      {/* Brand Header */}
+      <div className="flex items-center gap-3 mb-8">
+        <Image src={logoIcon} alt="Diba Leagleship Institute" className="h-9 w-auto" />
+      </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="mb-6">
+        <div className="w-12 h-12 bg-[#FFF6EA] text-[#DB911E] rounded-full flex items-center justify-center mb-4">
+          <ShieldCheck className="w-6 h-6" />
+        </div>
+        <h1 className="text-[22px] font-bold text-[#1F2937] mb-2 font-heading tracking-tight">
+          Two-Step Verification
+        </h1>
+        <p className="text-[14px] text-gray-500 leading-relaxed">
+          {codeSent
+            ? `Enter the 6-digit code sent to ${email} to verify your account.`
+            : "Enter your registered email address to receive a secure 6-digit verification code."}
+        </p>
+      </div>
+
+      {error && (
+        <div className="mb-5 p-3.5 bg-red-50 border border-red-200 rounded-[10px] text-red-700 text-[13px] flex items-start gap-2.5">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-5 p-3.5 bg-green-50 border border-green-200 rounded-[10px] text-green-700 text-[13px] flex items-start gap-2.5">
+          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-green-600" />
+          <span>{success}</span>
+        </div>
+      )}
+
+      {!codeSent ? (
+        <form onSubmit={handleSendCode} className="space-y-5">
           <div>
-            <label className="block text-[16px] font-medium text-[#777777] mb-3 font-sans">
-              Email
+            <label htmlFor="otp-email" className="block text-[13px] font-semibold text-gray-700 mb-2">
+              Email address
             </label>
-            
-            {/* OTP Input Grid */}
-            <div className="flex gap-5">
-              {otp.map((digit, index) => (
-                <input
-                  key={index}
-                  ref={(el) => {
-                    inputRefs.current[index] = el;
-                  }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(e) => handleChange(index, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(index, e)}
-                  onPaste={index === 0 ? handlePaste : undefined}
-                  disabled={isLoading}
-                  className="w-[60px] h-[48px] text-center text-[24px] font-normal bg-[#fdfdfd] border-2 border-[#d1d5db] rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1a3d3d]/20 focus:border-[#1a3d3d] transition-all font-sans disabled:opacity-50 disabled:cursor-not-allowed"
-                  data-filled={digit !== ""}
-                />
-              ))}
-            </div>
+            <input
+              id="otp-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              required
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-[10px] text-[14px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
+            />
           </div>
 
           <button
             type="submit"
-            disabled={!isComplete || isLoading}
-            className="w-full bg-[#333333] hover:bg-[#1a1a1a] disabled:bg-gray-400 disabled:cursor-not-allowed text-[#F8F7F5] font-medium py-3.5 rounded-xl text-[16px] transition-all duration-200 font-sans shadow-sm flex items-center justify-center gap-2"
+            disabled={isLoading || !email}
+            className={`w-full font-medium py-3 rounded-[10px] text-[14px] transition-colors flex items-center justify-center gap-2
+              ${
+                email && !isLoading
+                  ? "bg-[#1F2937] hover:bg-black text-white cursor-pointer"
+                  : "bg-[#F3F4F6] text-[#9CA3AF] cursor-not-allowed"
+              }`}
           >
             {isLoading ? (
               <>
-                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span>Verifying...</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Sending Code...</span>
               </>
             ) : (
-              "Next"
+              "Send Verification Code"
             )}
           </button>
         </form>
+      ) : (
+        <form onSubmit={handleVerify} className="space-y-5">
+          <div>
+            <label htmlFor="otp-code" className="block text-[13px] font-semibold text-gray-700 mb-2">
+              6-Digit Code
+            </label>
+            <input
+              id="otp-code"
+              type="text"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              placeholder="123456"
+              required
+              className="w-full tracking-widest text-center text-[22px] font-bold py-3 bg-white border border-gray-200 rounded-[10px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#DB911E] focus:border-transparent transition-all font-mono"
+            />
+          </div>
 
-        {/* Footer Link */}
-        <div className="mt-8 text-center">
-          <p className="text-[15px] text-[#6b7280] font-sans">
-            Remember password?{" "}
-            <Link 
-              href="/login" 
-              className="font-medium text-[#1a3d3d] hover:underline transition-all"
+          <button
+            type="submit"
+            disabled={isLoading || code.length < 6}
+            className={`w-full font-medium py-3 rounded-[10px] text-[14px] transition-colors flex items-center justify-center gap-2
+              ${
+                code.length === 6 && !isLoading
+                  ? "bg-[#DB911E] hover:bg-[#b87614] text-white cursor-pointer shadow-md"
+                  : "bg-[#F3F4F6] text-[#9CA3AF] cursor-not-allowed"
+              }`}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Verifying...</span>
+              </>
+            ) : (
+              "Verify & Continue"
+            )}
+          </button>
+
+          <div className="text-center pt-2">
+            <button
+              type="button"
+              onClick={handleSendCode}
+              disabled={isLoading}
+              className="text-[13px] text-gray-500 hover:text-gray-900 font-medium transition-colors"
             >
-              Login
-            </Link>
-          </p>
-        </div>
+              Didn’t receive the code? Resend
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+        <Link
+          href="/login"
+          className="inline-flex items-center gap-2 text-[13px] font-medium text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Sign in
+        </Link>
       </div>
     </div>
   );
