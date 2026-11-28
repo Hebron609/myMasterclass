@@ -19,6 +19,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { getRoleDashboardRoute } from "@/lib/auth";
 import { errorMessage } from "@/lib/api";
 import { uploadAvatar, updateAccount } from "@/lib/services/account";
+import { fetchCurrentUser, sessionUser } from "@/lib/services/auth";
 import logoIcon from "../../../public/icons/Diba-Leagleship-Institute-Blk.svg";
 import onboardingSideImage from "../../../public/images/onboarding-image.jpg";
 import { updateProfile } from "@/lib/services/users";
@@ -29,12 +30,14 @@ function PasswordInput({
   value,
   onChange,
   current = false,
+  required = true,
 }: {
   label: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
   current?: boolean;
+  required?: boolean;
 }) {
   const [visible, setVisible] = useState(false);
   const id = current
@@ -58,8 +61,8 @@ function PasswordInput({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoComplete={current ? "current-password" : "new-password"}
-          required
-          minLength={current ? undefined : 8}
+          required={required}
+          minLength={current || !required ? undefined : 8}
           className="w-full pl-4 pr-11 py-2.5 bg-white border border-gray-200 rounded-[8px] text-[14px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#D97706] focus:border-transparent transition-all"
         />
         <button
@@ -121,15 +124,22 @@ export function OnboardingForm() {
     event.preventDefault();
     if (!token || !user || lock.current) return;
     setError(null);
+    const wantsPasswordChange = Boolean(
+      user.mustChangePassword || password.length > 0 || confirmation.length > 0,
+    );
     if (
-      user.mustChangePassword &&
+      wantsPasswordChange &&
       (password.length < 8 || password !== confirmation)
     ) {
       setError(
         password.length < 8
-          ? "Use at least 8 characters."
+          ? "Use at least 8 characters for your new password."
           : "Your passwords do not match.",
       );
+      return;
+    }
+    if (!shortBio.trim() || !country) {
+      setError("Please enter your short bio and select your country to continue.");
       return;
     }
     lock.current = true;
@@ -146,12 +156,17 @@ export function OnboardingForm() {
           // Continue if phone format requires specific validation
         }
       }
-      if (shortBio.trim() || country) {
-        await updateProfile(token, user.id, { bio: shortBio.trim(), country });
+      await updateProfile(token, user.id, { bio: shortBio.trim(), country });
+      if (wantsPasswordChange) {
+        await completeOnboarding(password, confirmation, current);
+      } else {
+        const { data } = await fetchCurrentUser(token);
+        const refreshed = sessionUser(data);
+        useAuthStore.getState().login(
+          { ...refreshed, profileComplete: true },
+          token,
+        );
       }
-      const updated = user.mustChangePassword
-        ? await completeOnboarding(password, confirmation, current)
-        : user;
       setPassword("");
       setConfirmation("");
       setCurrent("");
@@ -241,31 +256,39 @@ export function OnboardingForm() {
                     </span>
                   </label>
                 </div>
-                {user?.mustChangePassword && (
-                  <>
-                    {!hasLoginPassword && (
-                      <PasswordInput
-                        label="Current or temporary password"
-                        placeholder="Enter the password you used to sign in..."
-                        value={current}
-                        onChange={setCurrent}
-                        current
-                      />
-                    )}
+                {!hasLoginPassword &&
+                  (user?.mustChangePassword || password.length > 0) && (
                     <PasswordInput
-                      label="Update Your Password"
-                      placeholder="Create your new password..."
-                      value={password}
-                      onChange={setPassword}
+                      label="Current or temporary password"
+                      placeholder="Enter the password you used to sign in..."
+                      value={current}
+                      onChange={setCurrent}
+                      current
+                      required={Boolean(
+                        user?.mustChangePassword || password.length > 0,
+                      )}
                     />
-                    <PasswordInput
-                      label="Confirm Password"
-                      placeholder="Confirm your new password..."
-                      value={confirmation}
-                      onChange={setConfirmation}
-                    />
-                  </>
-                )}
+                  )}
+                <PasswordInput
+                  label={
+                    user?.mustChangePassword
+                      ? "Update Your Password"
+                      : "Update Your Password (Optional)"
+                  }
+                  placeholder="Create your new password..."
+                  value={password}
+                  onChange={setPassword}
+                  required={Boolean(user?.mustChangePassword)}
+                />
+                <PasswordInput
+                  label="Confirm Password"
+                  placeholder="Confirm your new password..."
+                  value={confirmation}
+                  onChange={setConfirmation}
+                  required={Boolean(
+                    user?.mustChangePassword || password.length > 0,
+                  )}
+                />
                 {/* Short Bio */}
                 <div>
                   <label

@@ -34,13 +34,18 @@ export interface User {
   role: UserRole;
   avatarUrl?: string;
   mustChangePassword?: boolean;
+  profileComplete?: boolean;
   journeyYear?: number;
   enrolledPrograms: string[]; // List of program IDs
 }
 
-/** First-login profile setup applies only to mentors and mentees. */
+/** First-login profile & password setup applies to mentors and mentees until completed. */
 export const requiresOnboarding = (user: User | null): boolean =>
-  Boolean(user && user.role !== "ADMIN" && user.mustChangePassword);
+  Boolean(
+    user &&
+      user.role !== "ADMIN" &&
+      (user.mustChangePassword || user.profileComplete === false),
+  );
 
 /**
  * Get the current user from session storage (client-side) via Zustand

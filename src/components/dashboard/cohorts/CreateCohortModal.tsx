@@ -166,7 +166,7 @@ export function CreateCohortModal({ isOpen, onClose, onSuccess }: CreateCohortMo
             <button
               type="submit"
               disabled={isSaving || !name.trim() || !startDate}
-              className="px-6 py-2.5 bg-[#333333] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#1f1f1f] transition-colors font-rubik disabled:bg-gray-400 flex items-center gap-2 shadow-sm"
+              className="px-6 py-2.5 bg-[#DB911E] text-white rounded-[8px] text-[14px] font-medium hover:bg-[#BA7815] transition-colors font-rubik disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm cursor-pointer"
             >
               {isSaving ? (
                 <>

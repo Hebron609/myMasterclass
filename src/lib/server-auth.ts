@@ -129,15 +129,23 @@ export async function verifyBearerUser(
     const json = (await res.json()) as {
       data?: {
         role?: string;
+        profile?: { role?: string };
         user?: { role?: string; roles?: Array<string | { name?: string }> };
       };
     };
-    const rawRole = String(
-      json?.data?.role || json?.data?.user?.role || "",
-    ).toLowerCase();
-    const isAdmin = ["admin", "administrator", "owner", "super_admin"].includes(
-      rawRole,
-    );
+    const roleNames =
+      json?.data?.user?.roles?.map((r) =>
+        typeof r === "string" ? r.toLowerCase() : String(r?.name || "").toLowerCase(),
+      ) || [];
+    const candidates = [
+      String(json?.data?.role || "").toLowerCase(),
+      String(json?.data?.profile?.role || "").toLowerCase(),
+      String(json?.data?.user?.role || "").toLowerCase(),
+      ...roleNames,
+    ].filter(Boolean);
+    const adminRoles = ["admin", "administrator", "owner", "super_admin"];
+    const isAdmin = candidates.some((r) => adminRoles.includes(r));
+    const rawRole = candidates[0] || "";
 
     if (options.requireAdmin && !isAdmin) {
       return {

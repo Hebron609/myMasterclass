@@ -78,6 +78,13 @@ export function sessionUser(me: MasterclassMe): import("@/lib/auth").User {
         ? `https://appsuite.butterflytech.io/${rawAvatar.trim().replace(/^\/+/, "")}`
         : rawAvatar.trim()
       : undefined;
+  const hasBio = Boolean(
+    typeof profile?.bio === "string" && profile.bio.trim().length > 0,
+  );
+  const hasCountry = Boolean(
+    typeof profile?.country === "string" && profile.country.trim().length > 0,
+  );
+  const profileComplete = hasBio && hasCountry;
   return {
     id: String(user.id),
     email: user.email,
@@ -90,6 +97,7 @@ export function sessionUser(me: MasterclassMe): import("@/lib/auth").User {
       profile?.must_change_password ||
       user.must_change_password,
     ),
+    profileComplete,
     enrolledPrograms: [],
     journeyYear:
       typeof profile?.journey_year === "number"

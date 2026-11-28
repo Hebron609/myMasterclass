@@ -643,7 +643,27 @@ export default function AdminUsersPage() {
                   role: user.role,
                   temporaryPassword: tempPassword,
                 }),
-              }).catch((e) => console.warn("Failed to dispatch welcome email:", e));
+              })
+                .then(async (res) => {
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setActionError(
+                      `User created, but welcome email failed: ${(data as { error?: string }).error || `HTTP ${res.status}`}`,
+                    );
+                  } else {
+                    setCreatedUserMessage((prev) =>
+                      prev
+                        ? `${prev} Welcome email sent to ${user.email}.`
+                        : `Welcome email sent to ${user.email}.`,
+                    );
+                  }
+                })
+                .catch((e) => {
+                  console.warn("Failed to dispatch welcome email:", e);
+                  setActionError(
+                    "User created, but the welcome email could not be sent.",
+                  );
+                });
             }
             setActionError(null);
             resource.reload();
