@@ -160,7 +160,7 @@ export function AddUserModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[999999] min-h-screen w-screen flex items-center justify-center bg-black/40 backdrop-blur-md p-4 overflow-y-auto animate-in fade-in"
+      className="fixed inset-0 z-[999999] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-md p-0 sm:p-4 animate-in fade-in"
       onClick={close}
     >
       <div
@@ -171,18 +171,19 @@ export function AddUserModal({
         aria-labelledby="add-user-heading"
         aria-describedby="add-user-help"
         aria-busy={busy}
-        className="bg-white rounded-[20px] w-full max-w-[500px] shadow-2xl border border-gray-100 p-6 sm:p-7 relative font-sans my-auto outline-none"
+        className="bg-white rounded-t-[20px] sm:rounded-[20px] w-full max-w-[500px] max-h-[92dvh] sm:max-h-[90vh] shadow-2xl border border-gray-100 relative font-sans outline-none flex flex-col overflow-hidden"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-5">
-          <div>
+        {/* Sticky Header */}
+        <div className="flex items-start justify-between gap-3 px-5 sm:px-7 pt-5 sm:pt-7 pb-4 border-b border-gray-100 shrink-0">
+          <div className="min-w-0">
             <h3
               id="add-user-heading"
-              className="text-[19px] font-medium text-[#111928] tracking-tight"
+              className="text-[18px] sm:text-[19px] font-medium text-[#111928] tracking-tight"
             >
               Add a user
             </h3>
-            <p id="add-user-help" className="text-[13px] text-[#6B7280] mt-0.5">
+            <p id="add-user-help" className="text-[12.5px] sm:text-[13px] text-[#6B7280] mt-0.5">
               Create their account with an email and password. Share the login
               details with them directly.
             </p>
@@ -192,21 +193,24 @@ export function AddUserModal({
             onClick={close}
             disabled={busy}
             aria-label="Close Add user"
-            className="text-gray-400 hover:text-gray-600 transition-colors p-1 -mr-1 -mt-1 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+            className="text-gray-400 hover:text-gray-600 transition-colors p-1.5 -mr-1 -mt-1 rounded-lg hover:bg-gray-100 disabled:opacity-50 shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        {error && (
-          <p
-            role="alert"
-            className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-[8px] text-[13px]"
-          >
-            {error}
-          </p>
-        )}
-        <form onSubmit={submit}>
-          <fieldset disabled={busy} className="space-y-4">
+
+        {/* Scrollable Form Body */}
+        <form onSubmit={submit} className="flex flex-col flex-1 min-h-0">
+          <div className="overflow-y-auto flex-1 px-5 sm:px-7 py-4">
+            {error && (
+              <p
+                role="alert"
+                className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-[8px] text-[13px]"
+              >
+                {error}
+              </p>
+            )}
+            <fieldset disabled={busy} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="add-user-first-name" className={labelClass}>
@@ -376,24 +380,28 @@ export function AddUserModal({
                 className={fieldClass}
               />
             </div>
-            <div className="flex items-center justify-end gap-3 mt-6 pt-2">
-              <button
-                type="button"
-                onClick={close}
-                className="px-5 py-2 border border-[#E5E7EB] rounded-[8px] text-[13px] font-medium text-[#374151] hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className="px-5 py-2 bg-[#DB911E] hover:bg-[#BA7815] disabled:opacity-60 text-white rounded-[8px] text-[13px] font-medium transition-colors shadow-sm inline-flex items-center gap-2"
-              >
-                {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>{busy ? "Adding user…" : "Add user"}</span>
-              </button>
-            </div>
-          </fieldset>
+            </fieldset>
+          </div>
+
+          {/* Sticky Footer */}
+          <div className="flex flex-row items-center justify-end gap-3 px-5 sm:px-7 py-4 border-t border-gray-100 bg-white shrink-0">
+            <button
+              type="button"
+              onClick={close}
+              disabled={busy}
+              className="flex-1 sm:flex-none px-5 py-2.5 sm:py-2 border border-[#E5E7EB] rounded-[8px] text-[13.5px] sm:text-[13px] font-medium text-[#374151] hover:bg-gray-50 transition-colors text-center"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="flex-1 sm:flex-none px-5 py-2.5 sm:py-2 bg-[#DB911E] hover:bg-[#BA7815] disabled:opacity-60 text-white rounded-[8px] text-[13.5px] sm:text-[13px] font-medium transition-colors shadow-sm inline-flex items-center justify-center gap-2"
+            >
+              {busy && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>{busy ? "Adding user…" : "Add user"}</span>
+            </button>
+          </div>
         </form>
       </div>
     </div>,

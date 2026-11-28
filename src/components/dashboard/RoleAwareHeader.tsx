@@ -390,6 +390,22 @@ export function RoleAwareHeader({
               </button>
             )}
 
+            {userRole === "ADMIN" && pathname.endsWith("/cohorts") && !isCohortDetail && (
+              <button
+                type="button"
+                aria-label="Create Cohort"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent("open-create-cohort-modal"),
+                  )
+                }
+                className="bg-[#DB911E] hover:bg-[#BA7815] text-white px-2.5 sm:px-4 py-2 md:py-2.5 rounded-[8px] text-[12.5px] md:text-[13.5px] font-medium flex items-center gap-1.5 sm:gap-2 transition-colors font-sans ml-1 md:ml-2 shadow-sm cursor-pointer"
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Create Cohort</span>
+              </button>
+            )}
+
             {userRole === "ADMIN" && pathname.endsWith("/users") && (
               <div className="flex items-center gap-1.5 sm:gap-2.5 ml-1 md:ml-2">
                 <button

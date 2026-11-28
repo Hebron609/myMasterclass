@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
 import { useApiResource } from "@/hooks/useApiResource";
 import { useAuthStore } from "@/store/useAuthStore";
 import { fetchCohorts } from "@/lib/services/cohorts";
@@ -179,16 +178,6 @@ export default function AdminCohortsPage() {
 
   return (
     <div className="w-full pb-10">
-      <div className="flex items-center justify-end mb-5">
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-2 bg-[#DB911E] hover:bg-[#BA7815] text-white px-4 py-2.5 rounded-[10px] text-[13.5px] font-medium shadow-sm transition-colors cursor-pointer font-sans"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create Cohort</span>
-        </button>
-      </div>
       <ApiState {...resource} onRetry={resource.reload} />
       {resource.loading ? (
         <CardGridSkeleton count={6} />
