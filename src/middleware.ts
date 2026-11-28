@@ -27,9 +27,15 @@ export function middleware(request: NextRequest) {
 
   if (
     publicRoutes.includes(pathname) ||
+    pathname.startsWith("/api/") ||
     pathname.startsWith("/backend-api/") ||
     pathname.startsWith("/icons/") ||
-    pathname.startsWith("/images/")
+    pathname.startsWith("/images/") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/favicon.png" ||
+    pathname === "/icon.png" ||
+    pathname === "/icon.svg" ||
+    pathname === "/apple-icon.png"
   ) {
     return NextResponse.next();
   }
@@ -84,6 +90,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder
      */
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!_next/static|_next/image|favicon.ico|favicon.png|icon.png|icon.svg|apple-icon.png|api/|public).*)",
   ],
 };

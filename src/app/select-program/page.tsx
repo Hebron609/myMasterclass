@@ -7,7 +7,8 @@ import {
   TrendingUp,
   Users,
   ShieldCheck,
-  Sparkles,
+  Target,
+  Contact,
   Check,
 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -22,7 +23,7 @@ const getProgramCardDetails = (name: string) => {
   const lower = name.toLowerCase();
   if (lower.includes("vision")) {
     return {
-      icon: Sparkles,
+      icon: Target,
       iconBgSelected: "bg-[#FFF6EA]",
       iconColorSelected: "text-[#D98020]",
       iconBg: "bg-[#FFF6EA]",
@@ -31,7 +32,7 @@ const getProgramCardDetails = (name: string) => {
     };
   }
   return {
-    icon: Users,
+    icon: Contact,
     iconBgSelected: "bg-[#FFF6EA]",
     iconColorSelected: "text-[#D98020]",
     iconBg: "bg-[#F3F4F6]",

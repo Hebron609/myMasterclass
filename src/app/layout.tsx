@@ -27,6 +27,11 @@ const rubik = Rubik({
 export const metadata: Metadata = {
   title: "Vision2535 Mentorship Platform",
   description: "Empowering the next generation of leaders.",
+  icons: {
+    icon: "/favicon.png?v=2",
+    shortcut: "/favicon.png?v=2",
+    apple: "/favicon.png?v=2",
+  },
 };
 
 export default function RootLayout({
